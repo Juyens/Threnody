@@ -1,0 +1,26 @@
+# CMake / build output
+out/
+build/
+CMakeUserPresets.json
+
+# vcpkg
+vcpkg-installed/
+vcpkg_installed/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# Compiler / debugger artefacts
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.idb
+*.exp

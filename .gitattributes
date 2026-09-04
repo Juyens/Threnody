@@ -1,2 +1,24 @@
-# Auto detect text files and perform LF normalization
+# Normalise line endings: LF in the repository, native in the working tree
 * text=auto
+
+# Sources and project files
+*.cpp      text diff=cpp
+*.hpp      text diff=cpp
+*.h        text diff=cpp
+*.cmake    text
+CMakeLists.txt text
+*.json     text
+*.manifest text
+*.rc       text
+
+# Windows-only files that tools expect with CRLF
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+
+# Binary assets, never diffed or converted
+*.png      binary
+*.jpg      binary
+*.ico      binary
+*.ttf      binary
+*.otf      binary
