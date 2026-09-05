@@ -94,7 +94,8 @@ constexpr std::string_view successPage =
     "<!doctype html><html lang=\"es\"><meta charset=\"utf-8\"><title>Threnody</title>"
     "<body style=\"background:#0a0a0a;color:#ededed;font-family:'Segoe UI Variable',system-ui;display:grid;"
     "place-items:center;height:100vh;margin:0\"><div style=\"text-align:center\"><h1 style=\"font-weight:500\">"
-    "Threnody está conectado a Spotify</h1><p style=\"color:#a1a1a1\">Ya puedes cerrar esta pestaña.</p></div></body></html>";
+    "Threnody está conectado a Spotify</h1><p style=\"color:#a1a1a1\">Ya puedes cerrar esta pestaña.<br>"
+    "Threnody is connected to Spotify. You can close this tab.</p></div></body></html>";
 
 }  // namespace
 
@@ -125,7 +126,7 @@ void LoopbackListener::run(std::stop_token stop) {
     sockaddr_in address{.sin_family = AF_INET, .sin_port = htons(m_port)};
     inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
     if (bind(listener.get(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
-        m_onRedirect({.error = std::format("no se pudo escuchar en el puerto {} (error {})", m_port, WSAGetLastError())});
+        m_onRedirect({.error = std::format("could not listen on port {} (error {})", m_port, WSAGetLastError())});
         return;
     }
     if (listen(listener.get(), 4) != 0) {
@@ -136,7 +137,7 @@ void LoopbackListener::run(std::stop_token stop) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(m_timeoutSeconds);
     while (!stop.stop_requested()) {
         if (std::chrono::steady_clock::now() > deadline) {
-            m_onRedirect({.error = "la autorización caducó sin respuesta del navegador"});
+            m_onRedirect({.error = "authorisation timed out waiting for the browser"});
             return;
         }
         fd_set readable{};

@@ -8,9 +8,10 @@ A minimal media widget embedded in the Windows 11 taskbar: shows the current
 track (cover, title, artist), a spectrum visualiser, and transport controls.
 Written from scratch in C++, for one user, on one machine.
 
-Deliberately not configurable. Every preference is a compile-time constant.
-There is no settings UI, no persistence, no localisation — that is the whole
-point, and it is where the bulk of a general-purpose app's code goes.
+Deliberately minimal in configuration. Most preferences are compile-time
+constants in `Config.h`; the settings window exposes only start-with-Windows,
+the lock-key overlay, the visualiser colour mode, the language (Spanish or
+English, every string in `i18n/Strings.h`) and the Spotify connection.
 
 Named after the metal-adjacent word, not because a funeral lament has anything
 to do with a music widget.
@@ -199,6 +200,11 @@ All seven phases implemented.
   rainbow, and a gradient that ripples hue and lightness around the track
   colour and travels across the bars.
 - Lock-key overlay (see the phase 6 notes above).
+- Two interface languages, Spanish (default) and English, switchable in the
+  settings window and applied at once to the window, the overlay, the tray
+  menu and the widget placeholder. Every user-facing string lives in
+  `i18n/Strings.h` in both UTF-16 and UTF-8. The version shown in the
+  settings footer comes from the CMake project version (`THRENODY_VERSION`).
 - Tray icon drawn at runtime (three bars), left click opens settings, right
   click offers settings and quit. Settings window: Win32 + D3D11 + Dear ImGui
   1.92, created and destroyed with the window so nothing renders while it is

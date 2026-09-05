@@ -1,6 +1,8 @@
 #pragma once
 
+#include "i18n/Strings.h"
 #include "settings/Settings.h"
+#include "spotify/SpotifyClient.h"
 #include "util/Result.h"
 #include "util/Win32.h"
 
@@ -31,8 +33,8 @@ struct SettingsActions {
 };
 
 struct SpotifyStatus {
-    bool connected{false};
-    std::string detail;  // Human-readable state or error, UTF-8.
+    spotify::AuthState state{spotify::AuthState::Disconnected};
+    std::string detail;  // Technical detail, UTF-8; the window adds the localised wording.
 };
 
 // The Dear ImGui settings window. Everything (window, D3D11 device, ImGui

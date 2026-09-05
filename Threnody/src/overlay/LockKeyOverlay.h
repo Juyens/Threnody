@@ -1,6 +1,7 @@
 #pragma once
 
 #include "color/Color.h"
+#include "i18n/Strings.h"
 #include "overlay/LockKey.h"
 #include "render/Fonts.h"
 #include "render/Graphics.h"
@@ -30,6 +31,7 @@ public:
 
     // Shows the flyout for `key`, or refreshes it if already visible.
     void show(LockKey key, bool on);
+    void setLanguage(i18n::Language language) noexcept { m_strings = &i18n::strings(language); }
 
 private:
     enum class Phase { Hidden, Opening, Shown, Closing };
@@ -73,6 +75,7 @@ private:
     int m_hiddenTop{};
     int m_left{};
 
+    const i18n::Strings* m_strings{&i18n::spanish};
     std::wstring m_text;
     float m_widthDip{};  // Grows past the default when the text needs it.
     Color m_accent;

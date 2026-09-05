@@ -46,12 +46,12 @@ float easeInOutCubic(float t) noexcept {
     return t < 0.5f ? 4.0f * t * t * t : 1.0f - std::pow(-2.0f * t + 2.0f, 3.0f) / 2.0f;
 }
 
-const wchar_t* keyName(LockKey key) noexcept {
+const wchar_t* keyName(const i18n::Strings& strings, LockKey key) noexcept {
     switch (key) {
-        case LockKey::CapsLock: return config::lockOverlayCapsLockName;
-        case LockKey::NumLock: return config::lockOverlayNumLockName;
-        case LockKey::ScrollLock: return config::lockOverlayScrollLockName;
-        case LockKey::Insert: return config::lockOverlayInsertText;
+        case LockKey::CapsLock: return strings.capsLock.wide;
+        case LockKey::NumLock: return strings.numLock.wide;
+        case LockKey::ScrollLock: return strings.scrollLock.wide;
+        case LockKey::Insert: return strings.insertPressed.wide;
     }
     return L"";
 }
@@ -190,10 +190,10 @@ void LockKeyOverlay::show(LockKey key, bool on) {
         return;
     }
     if (key == LockKey::Insert) {
-        m_text = config::lockOverlayInsertText;
+        m_text = m_strings->insertPressed.wide;
         on = true;
     } else {
-        m_text = std::wstring{keyName(key)} + L' ' + (on ? config::lockOverlayOnText : config::lockOverlayOffText);
+        m_text = std::wstring{keyName(*m_strings, key)} + L' ' + (on ? m_strings->lockOn.wide : m_strings->lockOff.wide);
     }
     m_accent = systemAccent();
 

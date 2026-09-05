@@ -166,7 +166,7 @@ IAsyncOperation<winrt::hstring> ensureAccessToken(std::shared_ptr<Shared> shared
         co_return winrt::to_hstring(token.accessToken);
     } catch (const winrt::hresult_error& e) {
         log::warn("Spotify token refresh failed: {}", describe(e));
-        shared->setStatus(AuthState::Failed, "No se pudo renovar la sesión de Spotify: " + winrt::to_string(e.message()));
+        shared->setStatus(AuthState::Failed, "token refresh: " + winrt::to_string(e.message()));
         co_return winrt::hstring{};
     } catch (const json::exception& e) {
         log::warn("Spotify token refresh: bad JSON: {}", e.what());
@@ -181,7 +181,7 @@ winrt::fire_and_forget exchangeCode(std::shared_ptr<Shared> shared, std::string 
         verifier = shared->pendingVerifier;
         clientId = shared->pendingClientId;
     }
-    shared->setStatus(AuthState::Exchanging, "Intercambiando el código de autorización…");
+    shared->setStatus(AuthState::Exchanging, "");
 
     auto fields = winrt::single_threaded_map<winrt::hstring, winrt::hstring>();
     fields.Insert(L"grant_type", L"authorization_code");
@@ -196,9 +196,9 @@ winrt::fire_and_forget exchangeCode(std::shared_ptr<Shared> shared, std::string 
         shared->setStatus(AuthState::Connected, "");
     } catch (const winrt::hresult_error& e) {
         log::warn("Spotify code exchange failed: {}", describe(e));
-        shared->setStatus(AuthState::Failed, "Spotify rechazó el intercambio: " + winrt::to_string(e.message()));
+        shared->setStatus(AuthState::Failed, "token exchange: " + winrt::to_string(e.message()));
     } catch (const json::exception& e) {
-        shared->setStatus(AuthState::Failed, std::string("Respuesta inesperada de Spotify: ") + e.what());
+        shared->setStatus(AuthState::Failed, std::string("unexpected token response: ") + e.what());
     }
 }
 
@@ -317,7 +317,7 @@ void SpotifyClient::beginAuthorization(std::string clientId) {
                 return;
             }
             if (!redirect.error.empty()) {
-                shared->setStatus(AuthState::Failed, "Autorización fallida: " + redirect.error);
+                shared->setStatus(AuthState::Failed, redirect.error);
                 return;
             }
             std::string expectedState;
@@ -326,13 +326,13 @@ void SpotifyClient::beginAuthorization(std::string clientId) {
                 expectedState = shared->pendingState;
             }
             if (const auto error = redirect.query.find("error"); error != redirect.query.end()) {
-                shared->setStatus(AuthState::Failed, "Spotify denegó el acceso: " + error->second);
+                shared->setStatus(AuthState::Failed, "Spotify: " + error->second);
                 return;
             }
             const auto code = redirect.query.find("code");
             const auto state = redirect.query.find("state");
             if (code == redirect.query.end() || state == redirect.query.end() || state->second != expectedState) {
-                shared->setStatus(AuthState::Failed, "La respuesta de autorización no es válida.");
+                shared->setStatus(AuthState::Failed, "invalid authorisation response (state mismatch)");
                 return;
             }
             exchangeCode(shared, code->second);
@@ -352,7 +352,7 @@ void SpotifyClient::beginAuthorization(std::string clientId) {
         text::toWide(*challenge), text::toWide(*state), urlEncode(config::spotifyScopes));
     ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     log::info("Spotify authorisation started in the browser");
-    m_shared->setStatus(AuthState::WaitingForBrowser, "Autoriza Threnody en el navegador que se acaba de abrir.");
+    m_shared->setStatus(AuthState::WaitingForBrowser, "");
 }
 
 void SpotifyClient::disconnect() {

@@ -51,6 +51,7 @@ add_executable(Threnody WIN32
     "src/dsp/SpectrumAnalyzer.cpp"
     "src/shell/SpotifyProcess.h"
     "src/shell/SpotifyProcess.cpp"
+    "src/i18n/Strings.h"
     "src/interaction/HitTest.h"
     "src/interaction/HitTest.cpp"
     "src/media/MediaSession.h"
@@ -100,6 +101,7 @@ target_compile_definitions(Threnody PRIVATE
     _UNICODE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
+    THRENODY_VERSION="${PROJECT_VERSION}"
 )
 
 find_package(kissfft CONFIG REQUIRED)

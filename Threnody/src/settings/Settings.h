@@ -1,6 +1,7 @@
 #pragma once
 
 #include "color/ColorMode.h"
+#include "i18n/Strings.h"
 #include "util/Result.h"
 
 #include <filesystem>
@@ -22,6 +23,7 @@ struct LockKeyOverlay {
 // the data directory; unknown or malformed fields fall back to defaults.
 struct Settings {
     bool setupShown{false};  // The settings window opens itself once, on first run.
+    i18n::Language language{i18n::Language::Spanish};
     bool startWithWindows{false};
     LockKeyOverlay lockKeys;
     ColorMode colorMode{ColorMode::Track};

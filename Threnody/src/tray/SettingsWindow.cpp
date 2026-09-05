@@ -381,38 +381,53 @@ void SettingsWindow::drawContents() {
 }
 
 void SettingsWindow::drawSettingsColumn() {
+    const i18n::Strings& S = i18n::strings(m_settings.language);
     ImGui::PushFont(m_headingFont);
     ImGui::TextUnformatted("Threnody");
     ImGui::PopFont();
     ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
-    ImGui::TextUnformatted("Ajustes. Los cambios se aplican al momento.");
+    ImGui::TextUnformatted(S.settingsSubtitle.utf8);
     ImGui::PopStyleColor();
     ImGui::Dummy(ImVec2{0, 2});
     ImGui::Separator();
     ImGui::Dummy(ImVec2{0, 2});
 
-    sectionLabel("GENERAL");
-    if (ImGui::Checkbox("Arrancar con Windows", &m_settings.startWithWindows)) {
+    sectionLabel(S.sectionGeneral.utf8);
+    if (ImGui::Checkbox(S.startWithWindows.utf8, &m_settings.startWithWindows)) {
+        changed();
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
+    ImGui::TextUnformatted(S.language.utf8);
+    ImGui::PopStyleColor();
+    ImGui::SameLine(0, 16);
+    int language = static_cast<int>(m_settings.language);
+    if (ImGui::RadioButton("Español", &language, static_cast<int>(i18n::Language::Spanish))) {
+        m_settings.language = i18n::Language::Spanish;
+        changed();
+    }
+    ImGui::SameLine(0, 24);
+    if (ImGui::RadioButton("English", &language, static_cast<int>(i18n::Language::English))) {
+        m_settings.language = i18n::Language::English;
         changed();
     }
     ImGui::Dummy(ImVec2{0, 2});
     ImGui::Separator();
     ImGui::Dummy(ImVec2{0, 2});
 
-    sectionLabel("TECLAS DE BLOQUEO");
-    if (ImGui::Checkbox("Mostrar un aviso al pulsar una tecla de bloqueo", &m_settings.lockKeys.enabled)) {
+    sectionLabel(S.sectionLockKeys.utf8);
+    if (ImGui::Checkbox(S.lockKeysEnabled.utf8, &m_settings.lockKeys.enabled)) {
         changed();
     }
     ImGui::BeginDisabled(!m_settings.lockKeys.enabled);
     ImGui::Indent();
-    if (ImGui::Checkbox("Bloq Mayús", &m_settings.lockKeys.capsLock)) changed();
+    if (ImGui::Checkbox(S.capsLock.utf8, &m_settings.lockKeys.capsLock)) changed();
     ImGui::SameLine(0, 24);
-    if (ImGui::Checkbox("Bloq Num", &m_settings.lockKeys.numLock)) changed();
+    if (ImGui::Checkbox(S.numLock.utf8, &m_settings.lockKeys.numLock)) changed();
     ImGui::SameLine(0, 24);
-    if (ImGui::Checkbox("Bloq Despl", &m_settings.lockKeys.scrollLock)) changed();
+    if (ImGui::Checkbox(S.scrollLock.utf8, &m_settings.lockKeys.scrollLock)) changed();
     ImGui::SameLine(0, 24);
     if (ImGui::Checkbox("Insert", &m_settings.lockKeys.insert)) changed();
-    if (secondaryButton("Probar el aviso") && m_actions.onTestOverlay) {
+    if (secondaryButton(S.testOverlay.utf8) && m_actions.onTestOverlay) {
         defer(m_actions.onTestOverlay);
     }
     ImGui::Unindent();
@@ -421,19 +436,19 @@ void SettingsWindow::drawSettingsColumn() {
     ImGui::Separator();
     ImGui::Dummy(ImVec2{0, 2});
 
-    sectionLabel("VISUALIZADOR");
+    sectionLabel(S.sectionVisualiser.utf8);
     int mode = static_cast<int>(m_settings.colorMode);
-    if (ImGui::RadioButton("Color de la canción", &mode, static_cast<int>(ColorMode::Track))) {
+    if (ImGui::RadioButton(S.modeTrack.utf8, &mode, static_cast<int>(ColorMode::Track))) {
         m_settings.colorMode = ColorMode::Track;
         changed();
     }
     ImGui::SameLine(0, 24);
-    if (ImGui::RadioButton("Arcoíris", &mode, static_cast<int>(ColorMode::Rainbow))) {
+    if (ImGui::RadioButton(S.modeRainbow.utf8, &mode, static_cast<int>(ColorMode::Rainbow))) {
         m_settings.colorMode = ColorMode::Rainbow;
         changed();
     }
     ImGui::SameLine(0, 24);
-    if (ImGui::RadioButton("Degradado de la canción", &mode, static_cast<int>(ColorMode::TrackGradient))) {
+    if (ImGui::RadioButton(S.modeGradient.utf8, &mode, static_cast<int>(ColorMode::TrackGradient))) {
         m_settings.colorMode = ColorMode::TrackGradient;
         changed();
     }
@@ -441,51 +456,58 @@ void SettingsWindow::drawSettingsColumn() {
     ImGui::Separator();
     ImGui::Dummy(ImVec2{0, 2});
 
-    sectionLabel("SPOTIFY");
+    sectionLabel(S.sectionSpotify.utf8);
     ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
-    ImGui::TextWrapped("Sin conexión, el título y el artista abren una búsqueda en Spotify. Conectado, abren la "
-                       "canción y el artista exactos.");
+    ImGui::TextWrapped("%s", S.spotifyExplanation.utf8);
     ImGui::PopStyleColor();
     ImGui::Spacing();
-    ImGui::TextUnformatted(m_spotify.connected ? "Estado: conectado" : "Estado: no conectado");
-    if (!m_spotify.detail.empty()) {
+    const bool connected = m_spotify.state == spotify::AuthState::Connected;
+    ImGui::TextUnformatted(connected ? S.spotifyConnected.utf8 : S.spotifyDisconnected.utf8);
+    std::string status;
+    switch (m_spotify.state) {
+        case spotify::AuthState::WaitingForBrowser: status = S.authWaitingForBrowser.utf8; break;
+        case spotify::AuthState::Exchanging: status = S.authExchanging.utf8; break;
+        case spotify::AuthState::Failed: status = std::string{S.authFailedPrefix.utf8} + m_spotify.detail; break;
+        default: break;
+    }
+    if (!status.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
-        ImGui::TextWrapped("%s", m_spotify.detail.c_str());
+        ImGui::TextWrapped("%s", status.c_str());
         ImGui::PopStyleColor();
     }
     ImGui::Spacing();
-    if (m_spotify.connected) {
-        if (secondaryButton("Desconectar") && m_actions.onDisconnectSpotify) {
+    if (connected) {
+        if (secondaryButton(S.disconnect.utf8) && m_actions.onDisconnectSpotify) {
             defer(m_actions.onDisconnectSpotify);
         }
     } else {
         ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
-        ImGui::TextWrapped("1. Crea una app en el panel de desarrolladores de Spotify.");
+        ImGui::TextWrapped("%s", S.spotifyStep1.utf8);
         ImGui::PopStyleColor();
         ImGui::SameLine();
-        if (secondaryButton("Abrir el panel")) {
+        if (secondaryButton(S.openDashboard.utf8)) {
             defer([] {
                 ShellExecuteW(nullptr, L"open", L"https://developer.spotify.com/dashboard", nullptr, nullptr,
                               SW_SHOWNORMAL);
             });
         }
         ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
-        ImGui::TextWrapped("2. Añádele esta URI de redirección:");
+        ImGui::TextWrapped("%s", S.spotifyStep2.utf8);
         ImGui::PopStyleColor();
         static std::string redirect = text::toUtf8(config::spotifyRedirectUri);
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputText("##redirect", redirect.data(), redirect.size() + 1, ImGuiInputTextFlags_ReadOnly);
         ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
-        ImGui::TextWrapped("3. Pega aquí su Client ID y conecta. Se abrirá el navegador para autorizar.");
+        ImGui::TextWrapped("%s", S.spotifyStep3.utf8);
         ImGui::PopStyleColor();
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Conectar").x -
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(S.connect.utf8).x -
                                 ImGui::GetStyle().FramePadding.x * 2 - ImGui::GetStyle().ItemSpacing.x);
-        ImGui::InputTextWithHint("##clientid", "Client ID", m_clientId.data(), m_clientId.size(),
+        ImGui::InputTextWithHint("##clientid", S.clientIdHint.utf8, m_clientId.data(), m_clientId.size(),
                                  ImGuiInputTextFlags_CharsNoBlank);
         ImGui::SameLine();
         const bool hasId = m_clientId[0] != '\0';
         ImGui::BeginDisabled(!hasId);
-        if (primaryButton("Conectar") && m_actions.onConnectSpotify) {
+        if (primaryButton(S.connect.utf8) && m_actions.onConnectSpotify) {
             defer([this, clientId = std::string{m_clientId.data()}] { m_actions.onConnectSpotify(clientId); });
         }
         ImGui::EndDisabled();
@@ -498,20 +520,25 @@ void SettingsWindow::drawSettingsColumn() {
         ImGui::Dummy(ImVec2{0, remaining});
     }
     ImGui::Separator();
-    if (secondaryButton("Salir de Threnody") && m_actions.onQuit) {
+    if (secondaryButton(S.quit.utf8) && m_actions.onQuit) {
         defer(m_actions.onQuit);
     }
     ImGui::SameLine();
-    if (secondaryButton(m_logVisible ? "Ocultar registro" : "Ver registro")) {
+    if (secondaryButton(m_logVisible ? S.hideLog.utf8 : S.showLog.utf8)) {
         defer([this] { setLogVisible(!m_logVisible); });
     }
     ImGui::SameLine();
     ImGui::PushFont(m_smallFont);
     ImGui::PushStyleColor(ImGuiCol_Text, colorDisabled);
-    const char* version = "Threnody, compilación de desarrollo";
-    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - ImGui::CalcTextSize(version).x);
+    static const std::string version = std::string{"Threnody "} + THRENODY_VERSION +
+#ifdef _DEBUG
+                                       " (debug)";
+#else
+                                       "";
+#endif
+    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - ImGui::CalcTextSize(version.c_str()).x);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) / 2.0f);
-    ImGui::TextUnformatted(version);
+    ImGui::TextUnformatted(version.c_str());
     ImGui::PopStyleColor();
     ImGui::PopFont();
 }
@@ -519,18 +546,19 @@ void SettingsWindow::drawSettingsColumn() {
 // Live view of the log: what the file gets, as it gets it. Filter is a
 // case-insensitive substring; "Seguir" keeps the newest line in view.
 void SettingsWindow::drawLogColumn() {
+    const i18n::Strings& S = i18n::strings(m_settings.language);
     ImGui::PushStyleColor(ImGuiCol_Border, colorBorder);
     ImGui::Dummy(ImVec2{0, 6});
-    sectionLabel("REGISTRO EN VIVO");
+    sectionLabel(S.sectionLog.utf8);
 
     refreshLogLines();
 
     ImGui::SetNextItemWidth(220.0f * static_cast<float>(m_dpi) / 96.0f);
-    ImGui::InputTextWithHint("##logfilter", "Filtrar", m_logFilter.data(), m_logFilter.size());
+    ImGui::InputTextWithHint("##logfilter", S.filter.utf8, m_logFilter.data(), m_logFilter.size());
     ImGui::SameLine();
-    ImGui::Checkbox("Seguir", &m_logFollow);
+    ImGui::Checkbox(S.follow.utf8, &m_logFollow);
     ImGui::SameLine();
-    if (secondaryButton("Abrir archivo")) {
+    if (secondaryButton(S.openFile.utf8)) {
         defer([] {
             const std::filesystem::path file = log::file();
             if (!file.empty()) {
@@ -542,7 +570,7 @@ void SettingsWindow::drawLogColumn() {
     ImGui::PushFont(m_smallFont);
     ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) / 2.0f);
-    ImGui::Text("%zu líneas", m_logFiltered.size());
+    ImGui::Text("%zu %s", m_logFiltered.size(), S.linesSuffix.utf8);
     ImGui::PopStyleColor();
     ImGui::PopFont();
 

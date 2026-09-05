@@ -24,6 +24,7 @@ ColorMode colorModeFromName(const std::string& name) noexcept {
 json toJson(const Settings& s) {
     return json{
         {"setupShown", s.setupShown},
+        {"language", std::string{i18n::languageCode(s.language)}},
         {"startWithWindows", s.startWithWindows},
         {"lockKeys",
          {
@@ -45,6 +46,7 @@ json toJson(const Settings& s) {
 Settings fromJson(const json& j) {
     Settings s;
     s.setupShown = j.value("setupShown", s.setupShown);
+    s.language = i18n::languageFromCode(j.value("language", std::string{i18n::languageCode(s.language)}));
     s.startWithWindows = j.value("startWithWindows", s.startWithWindows);
     if (const auto keys = j.find("lockKeys"); keys != j.end() && keys->is_object()) {
         s.lockKeys.enabled = keys->value("enabled", s.lockKeys.enabled);

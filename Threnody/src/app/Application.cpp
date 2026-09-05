@@ -43,10 +43,6 @@ bool equalsIgnoreCase(std::wstring_view a, std::wstring_view b) noexcept {
 
 constexpr UINT menuSettingsId = 1;
 constexpr UINT menuQuitId = 2;
-constexpr tray::MenuItem trayMenu[] = {
-    {.id = menuSettingsId, .text = L"Ajustes…"},
-    {.id = menuQuitId, .text = L"Salir", .separatorBefore = true},
-};
 
 constexpr const char* alignmentName(taskbar::Alignment alignment) noexcept {
     return alignment == taskbar::Alignment::Left ? "left" : "center";
@@ -90,13 +86,14 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
         log::error("renderer unavailable: {}", renderer.error().describe());
     }
 
-    m_model.title = config::placeholderTitle;
-    m_model.artist = config::placeholderArtist;
+    m_model.title = strings().placeholderTitle.wide;
+    m_model.artist = strings().placeholderArtist.wide;
     m_model.colorMode = m_settings.colorMode;
 
     if (Result<std::unique_ptr<overlay::LockKeyOverlay>> lockOverlay = overlay::LockKeyOverlay::create(instance);
         lockOverlay) {
         m_lockOverlay = std::move(lockOverlay.value());
+        m_lockOverlay->setLanguage(m_settings.language);
     } else {
         log::error("lock-key overlay unavailable: {}", lockOverlay.error().describe());
     }
@@ -363,7 +360,7 @@ void Application::onMediaChanged() {
     const media::NowPlaying now = m_media->snapshot();
 
     const bool textChanged = now.available ? (m_model.title != now.title || m_model.artist != now.artist)
-                                           : (m_model.title != config::placeholderTitle);
+                                           : (m_model.title != strings().placeholderTitle.wide);
     const bool sessionChanged = m_sessionAvailable != now.available;
     const bool coverChanged = m_model.coverVersion != now.coverVersion;
     m_sessionAvailable = now.available;
@@ -400,8 +397,8 @@ void Application::onMediaChanged() {
             updateAccentFromCover();
         }
     } else {
-        m_model.title = config::placeholderTitle;
-        m_model.artist = config::placeholderArtist;
+        m_model.title = strings().placeholderTitle.wide;
+        m_model.artist = strings().placeholderArtist.wide;
         m_model.coverImage.clear();
         m_model.coverVersion = now.coverVersion;
         m_model.accent = config::defaultAccentColor;
@@ -586,6 +583,10 @@ void Application::onTrayEvent(WPARAM wParam, LPARAM lParam) {
             break;
         case WM_CONTEXTMENU: {
             const POINT anchor{.x = GET_X_LPARAM(wParam), .y = GET_Y_LPARAM(wParam)};
+            const tray::MenuItem trayMenu[] = {
+                {.id = menuSettingsId, .text = strings().menuSettings.wide},
+                {.id = menuQuitId, .text = strings().menuQuit.wide, .separatorBefore = true},
+            };
             switch (m_tray ? m_tray->showMenu(trayMenu, anchor) : 0) {
                 case menuSettingsId: openSettings(); break;
                 case menuQuitId: quit(); break;
@@ -619,6 +620,9 @@ void Application::applySettings(const settings::Settings& updated) {
         log::info("colour mode: {}", colorModeName(m_model.colorMode));
         repaintWidget();
     }
+    if (previous.language != updated.language) {
+        applyLanguage();
+    }
     if (previous.startWithWindows != updated.startWithWindows) {
         if (const Result<void> set = shell::setStartWithWindows(updated.startWithWindows); set) {
             log::info("start with Windows: {}", updated.startWithWindows ? "on" : "off");
@@ -628,6 +632,20 @@ void Application::applySettings(const settings::Settings& updated) {
     }
     applyLockKeySettings();
     saveSettings();
+}
+
+// A language change touches everything that shows text outside the settings
+// window: the overlay, the widget placeholder, and (on demand) the tray menu.
+void Application::applyLanguage() {
+    log::info("language: {}", i18n::languageCode(m_settings.language));
+    if (m_lockOverlay) {
+        m_lockOverlay->setLanguage(m_settings.language);
+    }
+    if (!m_sessionAvailable) {
+        m_model.title = strings().placeholderTitle.wide;
+        m_model.artist = strings().placeholderArtist.wide;
+        syncWithTaskbar(true);
+    }
 }
 
 void Application::testOverlay() {
@@ -692,8 +710,7 @@ void Application::publishSpotifyStatus() {
         return;
     }
     const spotify::Status status = m_spotify->status();
-    m_settingsWindow->setSpotifyStatus(
-        {.connected = status.state == spotify::AuthState::Connected, .detail = status.detail});
+    m_settingsWindow->setSpotifyStatus({.state = status.state, .detail = status.detail});
 }
 
 bool Application::linksMatchCurrentTrack() const {

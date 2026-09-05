@@ -68,6 +68,8 @@ private:
     void onTrayEvent(WPARAM wParam, LPARAM lParam);
     void openSettings();
     void applySettings(const settings::Settings& updated);
+    void applyLanguage();
+    [[nodiscard]] const i18n::Strings& strings() const noexcept { return i18n::strings(m_settings.language); }
     void testOverlay();
     void connectSpotify(std::string clientId);
     void disconnectSpotify();
