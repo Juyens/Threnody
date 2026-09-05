@@ -3,6 +3,8 @@
 #include "Config.h"
 #include "util/Log.h"
 
+#include <cmath>
+
 namespace threnody {
 namespace {
 
@@ -13,6 +15,14 @@ constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 
 constexpr const char* alignmentName(taskbar::Alignment alignment) noexcept {
     return alignment == taskbar::Alignment::Left ? "left" : "center";
+}
+
+constexpr float pixelsToDip(int px, UINT dpi) noexcept {
+    return static_cast<float>(px) * 96.0f / static_cast<float>(dpi);
+}
+
+int dipToPixels(float dip, UINT dpi) noexcept {
+    return static_cast<int>(std::lround(dip * static_cast<float>(dpi) / 96.0f));
 }
 
 }  // namespace
@@ -34,6 +44,16 @@ Application::Application(HINSTANCE instance)
         log::error("{}", Error::fromLastError("CreateWindowEx(ThrenodyMessageWindow)").describe());
         return;
     }
+
+    if (Result<std::unique_ptr<render::WidgetRenderer>> renderer = render::WidgetRenderer::create(); renderer) {
+        m_renderer = std::move(renderer.value());
+    } else {
+        log::error("renderer unavailable: {}", renderer.error().describe());
+    }
+
+    // Sample content until the media session feeds the model.
+    m_model.title = L"あぶく";
+    m_model.artist = L"ヨルシカ";
 
     m_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
 
@@ -129,7 +149,18 @@ void Application::syncWithTaskbar() {
         log::info("taskbar alignment: {}", alignmentName(current->alignment));
     }
 
-    const int widthPx = win32::scaleDip(config::widgetWidthDip, current->dpi);
+    // Height follows the taskbar; width follows the content.
+    const int heightPx = win32::height(current->bounds) - 2 * win32::scaleDip(config::widgetVerticalMarginDip, current->dpi);
+    int widthPx = win32::scaleDip(config::widgetMaxWidthDip, current->dpi) / 2;
+    if (m_renderer) {
+        if (Result<render::WidgetLayout> widgetLayout = m_renderer->layout(m_model, pixelsToDip(heightPx, current->dpi));
+            widgetLayout) {
+            m_widgetLayout = widgetLayout.value();
+            widthPx = dipToPixels(m_widgetLayout.width, current->dpi);
+        } else {
+            log::error("{}", widgetLayout.error().describe());
+        }
+    }
     const RECT rect = taskbar::placeWidget(*current, widthPx);
 
     if (!embedded) {
@@ -151,17 +182,19 @@ void Application::syncWithTaskbar() {
 }
 
 void Application::repaintWidget() {
+    if (!m_renderer || !m_layout) {
+        return;
+    }
+
     const SIZE size{.cx = win32::width(m_widgetRect), .cy = win32::height(m_widgetRect)};
     if (const Result<void> resized = m_surface.resize(size); !resized) {
         log::error("{}", resized.error().describe());
         return;
     }
 
-    // Placeholder until Direct2D takes over: a solid, deliberately visible
-    // fill. Premultiplied BGRA, alpha 255.
-    constexpr std::uint32_t placeholder = 0xFFE01B6A;
-    for (std::uint32_t& pixel : m_surface.pixels()) {
-        pixel = placeholder;
+    if (const Result<void> drawn = m_renderer->draw(m_surface, m_model, m_widgetLayout, m_layout->dpi); !drawn) {
+        log::error("{}", drawn.error().describe());
+        return;
     }
 
     if (const Result<void> presented = m_surface.present(m_widget.hwnd()); !presented) {

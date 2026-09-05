@@ -1,6 +1,9 @@
 #pragma once
 
 #include "render/LayeredSurface.h"
+#include "render/WidgetLayout.h"
+#include "render/WidgetModel.h"
+#include "render/WidgetRenderer.h"
 #include "taskbar/RegistryWatcher.h"
 #include "taskbar/Taskbar.h"
 #include "taskbar/WidgetWindow.h"
@@ -13,10 +16,9 @@
 
 namespace threnody {
 
-// Owns the message loop and wires the taskbar pieces together: a hidden
-// top-level window receives broadcasts (TaskbarCreated), timer ticks and
-// registry-change notifications, and reacts by (re)embedding or moving the
-// widget.
+// Owns the message loop and wires the pieces together: a hidden top-level
+// window receives broadcasts (TaskbarCreated), timer ticks and registry-change
+// notifications, and reacts by (re)embedding, moving or repainting the widget.
 class Application {
 public:
     explicit Application(HINSTANCE instance);
@@ -42,6 +44,10 @@ private:
 
     taskbar::WidgetWindow m_widget;
     render::LayeredSurface m_surface;
+    std::unique_ptr<render::WidgetRenderer> m_renderer;
+    render::WidgetModel m_model;
+    render::WidgetLayout m_widgetLayout{};
+
     std::unique_ptr<taskbar::RegistryWatcher> m_alignmentWatcher;
     std::optional<taskbar::Layout> m_layout;
     RECT m_widgetRect{};

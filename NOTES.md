@@ -137,11 +137,16 @@ an expiry, or the widget stays broken until the process restarts.
 
 ## State
 
-Phase 1 done: message loop, single-instance mutex, file log with exit cause,
-taskbar layout query (`TaskbarAl`, `TrayNotifyWnd`), registry watcher for live
-alignment changes, per-pixel layered child window with re-embedding after an
-explorer restart. The rectangle is placed before the tray (left-aligned icons)
-or at the left edge (centered icons), with margins.
+Phases 1 and 2 done.
 
-Rendering currently fills the DIB by hand. Next: phase 2, Direct2D drawing
-into that DIB through an `ID2D1DCRenderTarget`.
+- Message loop, single-instance mutex, file log with exit cause.
+- Taskbar layout query (`TaskbarAl`, `TrayNotifyWnd`), registry watcher for
+  live alignment changes, re-embedding after an explorer restart.
+- Per-pixel layered child window fed by a Direct2D DC render target bound to a
+  32-bit premultiplied DIB. Grayscale text antialiasing (ClearType needs an
+  opaque backdrop). DirectWrite fallback chain routes CJK to Yu Gothic UI /
+  Microsoft YaHei UI / Malgun Gothic ahead of the system fallback.
+- Widget width follows the measured text, capped; layout zones are plain
+  arithmetic in `render/WidgetLayout` so hit-testing can reuse them.
+
+Next: phase 3, SMTC metadata, cover art and transport commands.
