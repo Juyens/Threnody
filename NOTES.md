@@ -130,6 +130,14 @@ will not move until explorer is poked or restarted.
 arrives up to ten seconds later. The play/pause glyph is flipped optimistically
 on click and the event only confirms it.
 
+**Dear ImGui frames must not be re-entered.** A button handler that pumps
+messages (`ShellExecute` does) lets the frame `WM_TIMER` call `render()` again
+while a frame is open; ImGui asserts in `NewFrame`, the debug CRT shows a
+dialog whose own modal loop re-enters once more, and the process ends in
+`abort()`. Button actions are queued and run after `Present`, and `render()`
+refuses re-entry. The terminate handler and the symbolised stack trace in the
+log are what found this.
+
 **The taskbar gets rebuilt.** After a session unlock or an explorer restart,
 an embedded window can be orphaned and UI Automation queries against the
 taskbar can hang rather than fail. Anything that waits on such a query needs
@@ -180,6 +188,6 @@ All seven phases implemented.
   Spotify app; the redirect URI to register is shown in the settings window.
 
 Known gaps: the OAuth flow has not been run end-to-end here (it needs the
-user's Spotify app); the assertion that crashed the settings window once
-(22:07, exception 0x80000003 after a CRT assert dialog) has not reproduced;
-the CRT report hook now logs the assertion text if it happens again.
+user's Spotify app; the loopback listener and PKCE are covered by
+ThrenodyTests). The Spotify window toggle was verified by the user's own
+clicks in the log, not by an automated test.

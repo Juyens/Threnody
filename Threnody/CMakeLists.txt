@@ -113,7 +113,7 @@ target_link_libraries(Threnody PRIVATE
     d2d1 dwrite windowscodecs dcomp d3d11 dxgi dwmapi
     windowsapp
     mmdevapi
-    user32 gdi32 ole32 shell32 shcore advapi32 crypt32 bcrypt ws2_32
+    user32 gdi32 ole32 shell32 shcore advapi32 crypt32 bcrypt ws2_32 dbghelp
 )
 
 # Checks for the screen-free parts: parsing, colour, spectrum, layout,

@@ -67,6 +67,11 @@ private:
     void sectionLabel(const char* text) const;
     void changed();
 
+    // Button actions may pump messages (ShellExecute does), which would let a
+    // WM_TIMER re-enter render() inside an open ImGui frame. Actions are
+    // therefore queued and run after the frame is presented.
+    void defer(std::function<void()> action);
+
     HINSTANCE m_instance{};
     SettingsActions m_actions;
     win32::WindowClass m_class;
@@ -86,6 +91,9 @@ private:
     settings::Settings m_settings;
     SpotifyStatus m_spotify;
     std::array<char, 128> m_clientId{};
+
+    bool m_rendering{false};
+    std::function<void()> m_deferred;
 };
 
 }  // namespace threnody::tray

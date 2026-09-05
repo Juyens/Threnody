@@ -308,8 +308,12 @@ void SettingsWindow::sectionLabel(const char* text) const {
 
 void SettingsWindow::changed() {
     if (m_actions.onChanged) {
-        m_actions.onChanged(m_settings);
+        defer([this, snapshot = m_settings] { m_actions.onChanged(snapshot); });
     }
+}
+
+void SettingsWindow::defer(std::function<void()> action) {
+    m_deferred = std::move(action);
 }
 
 void SettingsWindow::drawContents() {
@@ -354,7 +358,7 @@ void SettingsWindow::drawContents() {
     ImGui::SameLine(0, 24);
     if (ImGui::Checkbox("Insert", &m_settings.lockKeys.insert)) changed();
     if (secondaryButton("Probar el aviso") && m_actions.onTestOverlay) {
-        m_actions.onTestOverlay();
+        defer(m_actions.onTestOverlay);
     }
     ImGui::Unindent();
     ImGui::EndDisabled();
@@ -392,7 +396,7 @@ void SettingsWindow::drawContents() {
     ImGui::Spacing();
     if (m_spotify.connected) {
         if (secondaryButton("Desconectar") && m_actions.onDisconnectSpotify) {
-            m_actions.onDisconnectSpotify();
+            defer(m_actions.onDisconnectSpotify);
         }
     } else {
         ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
@@ -400,7 +404,10 @@ void SettingsWindow::drawContents() {
         ImGui::PopStyleColor();
         ImGui::SameLine();
         if (secondaryButton("Abrir el panel")) {
-            ShellExecuteW(nullptr, L"open", L"https://developer.spotify.com/dashboard", nullptr, nullptr, SW_SHOWNORMAL);
+            defer([] {
+                ShellExecuteW(nullptr, L"open", L"https://developer.spotify.com/dashboard", nullptr, nullptr,
+                              SW_SHOWNORMAL);
+            });
         }
         ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
         ImGui::TextWrapped("2. Añádele esta URI de redirección:");
@@ -419,7 +426,7 @@ void SettingsWindow::drawContents() {
         const bool hasId = m_clientId[0] != '\0';
         ImGui::BeginDisabled(!hasId);
         if (primaryButton("Conectar") && m_actions.onConnectSpotify) {
-            m_actions.onConnectSpotify(std::string{m_clientId.data()});
+            defer([this, clientId = std::string{m_clientId.data()}] { m_actions.onConnectSpotify(clientId); });
         }
         ImGui::EndDisabled();
     }
@@ -432,7 +439,7 @@ void SettingsWindow::drawContents() {
     }
     ImGui::Separator();
     if (secondaryButton("Salir de Threnody") && m_actions.onQuit) {
-        m_actions.onQuit();
+        defer(m_actions.onQuit);
     }
     ImGui::SameLine();
     ImGui::PushFont(m_smallFont);
@@ -449,9 +456,10 @@ void SettingsWindow::drawContents() {
 }
 
 void SettingsWindow::render() {
-    if (!m_imgui || !m_renderTarget) {
+    if (!m_imgui || !m_renderTarget || m_rendering) {
         return;
     }
+    m_rendering = true;
     ImGui::SetCurrentContext(m_imgui);
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -465,6 +473,14 @@ void SettingsWindow::render() {
     m_context->ClearRenderTargetView(target, clear);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     m_swapChain->Present(1, 0);
+    m_rendering = false;
+
+    // Outside the frame now; the action may close this window or pump messages.
+    if (m_deferred) {
+        std::function<void()> action = std::move(m_deferred);
+        m_deferred = nullptr;
+        action();
+    }
 }
 
 LRESULT CALLBACK SettingsWindow::windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
