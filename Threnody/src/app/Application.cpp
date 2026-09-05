@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "color/DominantColor.h"
 #include "render/CoverSampler.h"
+#include "shell/Fullscreen.h"
 #include "shell/SpotifyLinks.h"
 #include "shell/SpotifyProcess.h"
 #include "util/Log.h"
@@ -19,6 +20,7 @@ constexpr UINT_PTR healthTimerId = 1;
 constexpr UINT_PTR spectrumTimerId = 2;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
+constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
 
 constexpr const char* alignmentName(taskbar::Alignment alignment) noexcept {
     return alignment == taskbar::Alignment::Left ? "left" : "center";
@@ -65,6 +67,14 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     m_model.title = config::placeholderTitle;
     m_model.artist = config::placeholderArtist;
     m_model.colorMode = m_settings.colorMode;
+
+    if (Result<std::unique_ptr<overlay::LockKeyOverlay>> lockOverlay = overlay::LockKeyOverlay::create(instance);
+        lockOverlay) {
+        m_lockOverlay = std::move(lockOverlay.value());
+    } else {
+        log::error("lock-key overlay unavailable: {}", lockOverlay.error().describe());
+    }
+    applyLockKeySettings();
 
     m_widget.onClick([this](POINT position) { onWidgetClick(position); });
     m_widget.onHover([this] { m_spotifyWindow.rememberForeground(); });
@@ -138,6 +148,10 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 
         case WM_THRENODY_MEDIA_CHANGED:
             onMediaChanged();
+            return 0;
+
+        case WM_THRENODY_LOCK_KEY:
+            onLockKey(static_cast<overlay::LockKey>(wParam), lParam != 0);
             return 0;
 
         case WM_CLOSE:
@@ -362,6 +376,44 @@ void Application::saveSettings() {
     if (const Result<void> saved = settings::save(m_settings, m_dataDirectory / settings::fileName); !saved) {
         log::error("{}", saved.error().describe());
     }
+}
+
+void Application::applyLockKeySettings() {
+    const bool wanted = m_settings.lockKeys.enabled && m_lockOverlay != nullptr;
+    if (wanted && !m_keyboardHook) {
+        const HWND messageWindow = m_messageWindow.get();
+        // The hook runs on this thread, but a posted message keeps the hook
+        // procedure itself trivial; Windows unhooks callbacks that dawdle.
+        m_keyboardHook = std::make_unique<overlay::KeyboardHook>([messageWindow](overlay::LockKey key, bool on) {
+            PostMessageW(messageWindow, WM_THRENODY_LOCK_KEY, static_cast<WPARAM>(key), on ? 1 : 0);
+        });
+        if (!m_keyboardHook->installed()) {
+            m_keyboardHook.reset();
+        } else {
+            log::info("lock-key overlay enabled");
+        }
+    } else if (!wanted && m_keyboardHook) {
+        m_keyboardHook.reset();
+        log::info("lock-key overlay disabled");
+    }
+}
+
+void Application::onLockKey(overlay::LockKey key, bool on) {
+    if (!m_lockOverlay) {
+        return;
+    }
+    const settings::LockKeyOverlay& keys = m_settings.lockKeys;
+    bool enabled = false;
+    switch (key) {
+        case overlay::LockKey::CapsLock: enabled = keys.capsLock; break;
+        case overlay::LockKey::NumLock: enabled = keys.numLock; break;
+        case overlay::LockKey::ScrollLock: enabled = keys.scrollLock; break;
+        case overlay::LockKey::Insert: enabled = keys.insert; break;
+    }
+    if (!enabled || shell::isFullscreenApplicationInFront()) {
+        return;
+    }
+    m_lockOverlay->show(key, on);
 }
 
 void Application::manageCapture() {

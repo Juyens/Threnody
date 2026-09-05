@@ -142,7 +142,7 @@ an expiry, or the widget stays broken until the process restarts.
 
 ## State
 
-Phases 1 to 5 done.
+Phases 1 to 6 done.
 
 - Message loop, single-instance mutex, file log with exit cause.
 - Taskbar layout query (`TaskbarAl`, `TrayNotifyWnd`), registry watcher for
@@ -160,8 +160,20 @@ Phases 1 to 5 done.
 - Clicks: background/cover toggle the Spotify window (foreground remembered on
   hover, taskbars ignored, refreshed after each toggle); title and artist open
   `spotify:search:` URIs; the visualiser toggles track/rainbow colour. Track
-  colour is the dominant saturated hue of the cover, pushed to a legible
-  saturation and lightness. Rainbow travels while frames run, static when
-  paused. Colour mode persists in `settings.json` (nlohmann-json).
+  colour is the dominant saturated hue of the cover. Colour mode persists in
+  `settings.json` (nlohmann-json).
+- Lock-key overlay: WH_KEYBOARD_LL hook on the UI thread posting to the
+  message window; a click-through topmost layered window, 160 x 50 DIP (wider
+  when the Spanish text needs it), centred near the top of the work area,
+  sliding in from off-screen with a fade (300 ms cubic), 2 s hold, sliding
+  back out. Padlock from the reference's SVG path data through a small SVG
+  path parser (`render/SvgPath`); shackle rotates 25 degrees open with a
+  bounce, accent bar shrinks and dims when off. Suppressed while a
+  full-screen app is in front. Verified by injecting Scroll Lock with
+  keybd_event, which the low-level hook sees like a real key.
 
-Next: phase 6, the lock-key overlay (reference: FluentFlyout's LockWindow).
+The reference places its flyout at the bottom centre; the brief asked for
+the top, so that is what is implemented (constants in `Config.h`).
+
+Next: phase 7, tray icon, Dear ImGui settings window, run-at-startup, and
+the Spotify Web API (PKCE) connection for exact track/artist links.

@@ -79,6 +79,38 @@ inline constexpr Color artistColor{1.0f, 1.0f, 1.0f, 0.60f};
 inline constexpr Color controlColor{1.0f, 1.0f, 1.0f, 0.90f};
 inline constexpr Color defaultAccentColor{0.55f, 0.78f, 1.0f, 1.0f};
 
+// Lock-key overlay. Sizes and timings follow the reference flyout: a
+// 160 x 50 panel, 300 ms slide with a 2000 ms hold, 200 ms status animation.
+inline constexpr float lockOverlayWidthDip = 160.0f;
+inline constexpr float lockOverlayHeightDip = 50.0f;
+inline constexpr int lockOverlayTopMarginDip = 16;      // Distance from the top of the work area when shown.
+inline constexpr float lockOverlayCornerRadiusDip = 8.0f;
+inline constexpr float lockOverlayPaddingLeftDip = 14.0f;
+inline constexpr float lockOverlayPaddingRightDip = 12.0f;
+inline constexpr float lockOverlayPaddingBottomDip = 6.0f;
+inline constexpr float lockOverlayIconSizeDip = 22.0f;
+inline constexpr float lockOverlayTextLeftMarginDip = 20.0f;
+inline constexpr float lockOverlayTextBottomMarginDip = 4.0f;
+inline constexpr float lockOverlayTextSlackDip = 10.0f;  // Extra room when the panel grows to fit the text.
+inline constexpr float lockOverlayFontSizeDip = 14.0f;
+inline constexpr float lockOverlayIndicatorWidthDip = 60.0f;
+inline constexpr float lockOverlayIndicatorOffWidthDip = 36.0f;
+inline constexpr float lockOverlayIndicatorHeightDip = 4.0f;
+inline constexpr float lockOverlayIndicatorOffOpacity = 0.2f;
+inline constexpr float lockOverlayShackleOpenDegrees = 25.0f;
+inline constexpr unsigned lockOverlaySlideMs = 300;
+inline constexpr unsigned lockOverlayHoldMs = 2000;
+inline constexpr unsigned lockOverlayStatusMs = 200;
+inline constexpr Color lockOverlayBackgroundColor{0.125f, 0.125f, 0.125f, 0.90f};
+inline constexpr Color lockOverlayBorderColor{1.0f, 1.0f, 1.0f, 0.09f};
+inline constexpr Color lockOverlayForegroundColor{1.0f, 1.0f, 1.0f, 1.0f};
+inline constexpr wchar_t lockOverlayCapsLockName[] = L"Bloq Mayús";
+inline constexpr wchar_t lockOverlayNumLockName[] = L"Bloq Num";
+inline constexpr wchar_t lockOverlayScrollLockName[] = L"Bloq Despl";
+inline constexpr wchar_t lockOverlayInsertText[] = L"Insert pulsado";
+inline constexpr wchar_t lockOverlayOnText[] = L"activado";
+inline constexpr wchar_t lockOverlayOffText[] = L"desactivado";
+
 // How often the taskbar is re-checked for rebuilds and layout changes.
 inline constexpr unsigned taskbarHealthCheckMs = 2000;
 

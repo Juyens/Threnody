@@ -4,6 +4,8 @@
 #include "dsp/SpectrumAnalyzer.h"
 #include "interaction/HitTest.h"
 #include "media/MediaSession.h"
+#include "overlay/KeyboardHook.h"
+#include "overlay/LockKeyOverlay.h"
 #include "render/LayeredSurface.h"
 #include "render/WidgetLayout.h"
 #include "render/WidgetModel.h"
@@ -54,6 +56,10 @@ private:
     void toggleColorMode();
     void saveSettings();
 
+    // Lock-key overlay: the hook exists only while the feature is enabled.
+    void applyLockKeySettings();
+    void onLockKey(overlay::LockKey key, bool on);
+
     // Audio capture follows the Spotify session: started when it exists,
     // restarted when Spotify's root process changes, retried after failures.
     void manageCapture();
@@ -85,6 +91,9 @@ private:
     dsp::SpectrumAnalyzer m_analyzer;
     std::array<float, dsp::SpectrumAnalyzer::fftSize> m_frame{};
     bool m_spectrumRunning{false};
+
+    std::unique_ptr<overlay::LockKeyOverlay> m_lockOverlay;
+    std::unique_ptr<overlay::KeyboardHook> m_keyboardHook;
 
     std::unique_ptr<taskbar::RegistryWatcher> m_alignmentWatcher;
     std::optional<taskbar::Layout> m_layout;

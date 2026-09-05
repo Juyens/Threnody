@@ -65,7 +65,7 @@ std::span<std::uint32_t> LayeredSurface::pixels() noexcept {
     return {m_bits, static_cast<std::size_t>(m_size.cx) * static_cast<std::size_t>(m_size.cy)};
 }
 
-Result<void> LayeredSurface::present(HWND hwnd) const {
+Result<void> LayeredSurface::present(HWND hwnd, BYTE constantAlpha) const {
     if (!m_dc || hwnd == nullptr) {
         return Error::fromHResult(E_NOT_VALID_STATE, "LayeredSurface::present without a surface or window");
     }
@@ -74,7 +74,7 @@ Result<void> LayeredSurface::present(HWND hwnd) const {
     BLENDFUNCTION blend{
         .BlendOp = AC_SRC_OVER,
         .BlendFlags = 0,
-        .SourceConstantAlpha = 255,
+        .SourceConstantAlpha = constantAlpha,
         .AlphaFormat = AC_SRC_ALPHA,
     };
     if (!UpdateLayeredWindow(hwnd, nullptr, nullptr, &size, m_dc.get(), &origin, 0, &blend, ULW_ALPHA)) {

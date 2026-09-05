@@ -29,8 +29,9 @@ public:
     [[nodiscard]] std::span<std::uint32_t> pixels() noexcept;
 
     // Hands the bitmap to DWM as the window's content. The window keeps its
-    // position; its size follows the bitmap.
-    [[nodiscard]] Result<void> present(HWND hwnd) const;
+    // position; its size follows the bitmap. `constantAlpha` multiplies the
+    // whole surface (255 = as drawn), which is how fades are done cheaply.
+    [[nodiscard]] Result<void> present(HWND hwnd, BYTE constantAlpha = 255) const;
 
 private:
     void release() noexcept;
