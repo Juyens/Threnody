@@ -1,5 +1,7 @@
 #pragma once
 
+#include "audio/ProcessLoopbackCapture.h"
+#include "dsp/SpectrumAnalyzer.h"
 #include "interaction/HitTest.h"
 #include "media/MediaSession.h"
 #include "render/LayeredSurface.h"
@@ -13,6 +15,7 @@
 
 #include <Windows.h>
 
+#include <array>
 #include <memory>
 #include <optional>
 
@@ -21,7 +24,8 @@ namespace threnody {
 // Owns the message loop and wires the pieces together: a hidden top-level
 // window receives broadcasts (TaskbarCreated), timer ticks, registry-change
 // and media-change notifications, and reacts by (re)embedding, moving or
-// repainting the widget.
+// repainting the widget. Also decides when audio capture runs and drives the
+// visualiser frames.
 class Application {
 public:
     explicit Application(HINSTANCE instance);
@@ -44,6 +48,12 @@ private:
     void onMediaChanged();
     void onWidgetClick(POINT position);
 
+    // Audio capture follows the Spotify session: started when it exists,
+    // restarted when Spotify's root process changes, retried after failures.
+    void manageCapture();
+    void setSpectrumRunning(bool running);
+    void onSpectrumFrame();
+
     HINSTANCE m_instance{};
     win32::WindowClass m_messageClass;
     win32::unique_hwnd m_messageWindow;
@@ -56,6 +66,15 @@ private:
     render::WidgetLayout m_widgetLayout{};
 
     std::unique_ptr<media::MediaSession> m_media;
+    bool m_sessionAvailable{false};
+
+    audio::ProcessLoopbackCapture m_capture;
+    ULONGLONG m_lastCaptureAttempt{};
+    bool m_captureFailureLogged{false};
+    bool m_captureRunningLogged{false};
+    dsp::SpectrumAnalyzer m_analyzer;
+    std::array<float, dsp::SpectrumAnalyzer::fftSize> m_frame{};
+    bool m_spectrumRunning{false};
 
     std::unique_ptr<taskbar::RegistryWatcher> m_alignmentWatcher;
     std::optional<taskbar::Layout> m_layout;

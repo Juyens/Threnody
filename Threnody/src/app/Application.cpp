@@ -1,6 +1,7 @@
 #include "app/Application.h"
 
 #include "Config.h"
+#include "shell/SpotifyProcess.h"
 #include "util/Log.h"
 #include "util/Text.h"
 
@@ -12,6 +13,7 @@ namespace {
 constexpr wchar_t messageClassName[] = L"ThrenodyMessageWindow";
 
 constexpr UINT_PTR healthTimerId = 1;
+constexpr UINT_PTR spectrumTimerId = 2;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 
@@ -37,7 +39,8 @@ Application::Application(HINSTANCE instance)
           .hInstance = instance,
           .lpszClassName = messageClassName,
       }),
-      m_widget(instance) {
+      m_widget(instance),
+      m_analyzer(static_cast<int>(audio::ProcessLoopbackCapture::sampleRate)) {
     // A real (not message-only) top-level window, otherwise it would miss the
     // TaskbarCreated broadcast. Never shown.
     m_messageWindow.reset(CreateWindowExW(WS_EX_TOOLWINDOW, m_messageClass.name(), L"Threnody", WS_OVERLAPPED,
@@ -76,6 +79,7 @@ Application::~Application() {
     // Both post to the message window; stop them before the window goes.
     m_media.reset();
     m_alignmentWatcher.reset();
+    m_capture.stop();
 }
 
 int Application::run() {
@@ -113,8 +117,16 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 
     switch (message) {
         case WM_THRENODY_ALIGNMENT_CHANGED:
-        case WM_TIMER:
             syncWithTaskbar(false);
+            return 0;
+
+        case WM_TIMER:
+            if (wParam == healthTimerId) {
+                syncWithTaskbar(false);
+                manageCapture();
+            } else if (wParam == spectrumTimerId) {
+                onSpectrumFrame();
+            }
             return 0;
 
         case WM_THRENODY_MEDIA_CHANGED:
@@ -127,6 +139,7 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 
         case WM_DESTROY:
             KillTimer(hwnd, healthTimerId);
+            KillTimer(hwnd, spectrumTimerId);
             PostQuitMessage(EXIT_SUCCESS);
             return 0;
 
@@ -223,6 +236,9 @@ void Application::onMediaChanged() {
     const bool textChanged = now.available ? (m_model.title != now.title || m_model.artist != now.artist)
                                            : (m_model.title != config::placeholderTitle);
     const bool playingChanged = m_model.playing != (now.available && now.playing);
+    const bool sessionChanged = m_sessionAvailable != now.available;
+    m_sessionAvailable = now.available;
+
     if (now.available) {
         m_model.title = now.title;
         m_model.artist = now.artist;
@@ -242,6 +258,12 @@ void Application::onMediaChanged() {
     if (textChanged || playingChanged) {
         log::info("now playing: {} / {} ({})", text::toUtf8(m_model.title), text::toUtf8(m_model.artist),
                   now.available ? (now.playing ? "playing" : "paused") : "no session");
+    }
+    if (sessionChanged) {
+        manageCapture();
+    }
+    if (m_model.playing) {
+        setSpectrumRunning(true);
     }
     if (textChanged) {
         syncWithTaskbar(true);  // Width may change with the text.
@@ -269,6 +291,9 @@ void Application::onWidgetClick(POINT position) {
             // Spotify takes several seconds to report the new state through
             // SMTC; flip the glyph now and let the event confirm it.
             m_model.playing = !m_model.playing;
+            if (m_model.playing) {
+                setSpectrumRunning(true);
+            }
             repaintWidget();
             break;
         case interaction::Zone::Next:
@@ -276,6 +301,89 @@ void Application::onWidgetClick(POINT position) {
             break;
         default:
             break;  // Remaining zones arrive with the interaction phase.
+    }
+}
+
+void Application::manageCapture() {
+    using audio::CaptureStatus;
+    const CaptureStatus status = m_capture.status();
+
+    if (!m_sessionAvailable) {
+        if (status != CaptureStatus::Stopped) {
+            log::info("audio capture stopped: Spotify session gone");
+            m_capture.stop();
+        }
+        return;
+    }
+
+    if (status == CaptureStatus::Failed && !m_captureFailureLogged) {
+        log::error("audio capture failed, visualiser disabled until retry: {}", m_capture.failure());
+        m_captureFailureLogged = true;
+    }
+    if (status == CaptureStatus::Running && !m_captureRunningLogged) {
+        log::info("audio capture running (pid {})", m_capture.processId());
+        m_captureRunningLogged = true;
+    }
+    if (status != CaptureStatus::Running) {
+        m_captureRunningLogged = false;
+    }
+
+    const std::optional<shell::SpotifyProcess> spotify = shell::findSpotify();
+    if (!spotify) {
+        if (status == CaptureStatus::Running || status == CaptureStatus::Starting) {
+            log::info("audio capture stopped: no Spotify process");
+            m_capture.stop();
+        }
+        return;
+    }
+
+    if (status == CaptureStatus::Running || status == CaptureStatus::Starting) {
+        if (m_capture.processId() != spotify->processId) {
+            log::info("Spotify root process changed ({} -> {}); restarting capture", m_capture.processId(),
+                      spotify->processId);
+            m_capture.stop();
+        } else {
+            return;
+        }
+    }
+
+    const ULONGLONG now = GetTickCount64();
+    if (status != CaptureStatus::Stopped && now - m_lastCaptureAttempt < config::captureRetryMs) {
+        return;
+    }
+    m_lastCaptureAttempt = now;
+    m_captureFailureLogged = false;
+    log::info("starting audio capture of Spotify pid {} ({} main window)", spotify->processId,
+              spotify->mainWindow != nullptr ? "with" : "no");
+    m_capture.start(spotify->processId);
+}
+
+void Application::setSpectrumRunning(bool running) {
+    if (running == m_spectrumRunning || !m_messageWindow) {
+        return;
+    }
+    m_spectrumRunning = running;
+    if (running) {
+        SetTimer(m_messageWindow.get(), spectrumTimerId, config::spectrumFrameMs, nullptr);
+    } else {
+        KillTimer(m_messageWindow.get(), spectrumTimerId);
+    }
+}
+
+// One visualiser frame. Runs at ~30 fps only while playing, then keeps going
+// just long enough for the bars to settle on the baseline.
+void Application::onSpectrumFrame() {
+    if (m_model.playing && m_capture.status() == audio::CaptureStatus::Running) {
+        m_capture.samples().latest(m_frame);
+        m_analyzer.analyze(m_frame);
+    } else {
+        m_analyzer.decay();
+    }
+    m_model.spectrum = m_analyzer.bands();
+    repaintWidget();
+
+    if (!m_model.playing && m_analyzer.idle()) {
+        setSpectrumRunning(false);
     }
 }
 

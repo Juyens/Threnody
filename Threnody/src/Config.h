@@ -24,11 +24,28 @@ inline constexpr float textLineGapDip = 1.0f;
 inline constexpr float controlButtonWidthDip = 22.0f;
 inline constexpr float controlGlyphSizeDip = 10.0f;
 
-// Spectrum visualiser.
+// Spectrum visualiser: geometry.
 inline constexpr int spectrumBarCount = 13;
 inline constexpr float spectrumBarWidthDip = 3.0f;
 inline constexpr float spectrumBarGapDip = 2.0f;
 inline constexpr float spectrumBaselineDip = 2.0f;
+
+// Spectrum visualiser: analysis. Bands are log-spaced between the two
+// frequencies; levels are mapped linearly between the dB floor and ceiling.
+// Attack/release are per-frame blend factors at the visualiser frame rate.
+inline constexpr double spectrumMinHz = 40.0;
+inline constexpr double spectrumMaxHz = 8000.0;
+inline constexpr float spectrumFloorDb = -62.0f;
+inline constexpr float spectrumCeilingDb = -14.0f;
+// Music rolls off toward the treble; lift each band by this much per octave
+// above the lowest so the right-hand bars get to move too.
+inline constexpr float spectrumTiltDbPerOctave = 3.5f;
+inline constexpr float spectrumAttack = 0.65f;
+inline constexpr float spectrumRelease = 0.86f;
+inline constexpr unsigned spectrumFrameMs = 33;  // ~30 fps
+
+// How long to wait before retrying a failed or lost audio capture.
+inline constexpr unsigned captureRetryMs = 10000;
 
 // Text. DirectWrite handles shaping; the fallback chain covers CJK titles.
 inline constexpr wchar_t fontFamily[] = L"Segoe UI Variable Text";

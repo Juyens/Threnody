@@ -142,7 +142,7 @@ an expiry, or the widget stays broken until the process restarts.
 
 ## State
 
-Phases 1 to 3 done.
+Phases 1 to 4 done.
 
 - Message loop, single-instance mutex, file log with exit cause.
 - Taskbar layout query (`TaskbarAl`, `TrayNotifyWnd`), registry watcher for
@@ -152,9 +152,13 @@ Phases 1 to 3 done.
   chain routes CJK to Yu Gothic UI / Microsoft YaHei UI / Malgun Gothic.
 - SMTC through C++/WinRT: Spotify session picked by the AUMID rule, title,
   artist, cover (decoded and centre-cropped with WIC), play state, and the
-  three transport commands from clicks. Events are bounced to the UI thread
-  with a posted message; the UI thread pulls a snapshot.
+  three transport commands from clicks.
+- WASAPI process loopback of Spotify's root process tree on its own MTA
+  thread, mono mix into a lock-free ring; kissfft real FFT of 4096 samples,
+  13 log-spaced bands 40 Hz-8 kHz in dB with a treble tilt, peak-meter
+  smoothing, 30 fps timer that only runs while playing or settling.
 - Widget width follows the measured text, capped; layout zones are plain
   arithmetic in `render/WidgetLayout`, reused by `interaction/HitTest`.
 
-Next: phase 4, WASAPI process loopback and the FFT bars.
+Next: phase 5, clicks (Spotify window toggle, artist/title links, colour
+mode) and the colour extraction.
