@@ -86,6 +86,12 @@ private:
     void setSpectrumRunning(bool running);
     void onSpectrumFrame();
 
+    // Play/pause as shown: SMTC's status arrives 5-14 s late from Spotify, so
+    // while audio is being captured the presence of signal decides.
+    void setAudioWatch(bool running);
+    void onAudioTick();
+    void updatePlayingState();
+
     HINSTANCE m_instance{};
     std::filesystem::path m_dataDirectory;
     settings::Settings m_settings;
@@ -115,6 +121,11 @@ private:
     dsp::SpectrumAnalyzer m_analyzer;
     std::array<float, dsp::SpectrumAnalyzer::fftSize> m_frame{};
     bool m_spectrumRunning{false};
+    bool m_smtcPlaying{false};
+    bool m_audioWatch{false};
+    bool m_audioSeen{false};
+    std::uint64_t m_lastWritten{};
+    ULONGLONG m_lastAudioActiveTick{};
     bool m_hoverFading{false};
     ULONGLONG m_hoverFrameTick{};
 

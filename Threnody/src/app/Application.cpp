@@ -28,6 +28,7 @@ constexpr UINT_PTR healthTimerId = 1;
 constexpr UINT_PTR spectrumTimerId = 2;
 constexpr UINT_PTR hoverTimerId = 3;
 constexpr unsigned hoverFrameMs = 16;
+constexpr UINT_PTR audioTimerId = 4;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
@@ -231,6 +232,8 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 onSpectrumFrame();
             } else if (wParam == hoverTimerId) {
                 onHoverFrame();
+            } else if (wParam == audioTimerId) {
+                onAudioTick();
             }
             return 0;
 
@@ -265,6 +268,7 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             KillTimer(hwnd, healthTimerId);
             KillTimer(hwnd, spectrumTimerId);
             KillTimer(hwnd, hoverTimerId);
+            KillTimer(hwnd, audioTimerId);
             PostQuitMessage(EXIT_SUCCESS);
             return 0;
 
@@ -360,40 +364,40 @@ void Application::onMediaChanged() {
 
     const bool textChanged = now.available ? (m_model.title != now.title || m_model.artist != now.artist)
                                            : (m_model.title != config::placeholderTitle);
-    const bool playingChanged = m_model.playing != (now.available && now.playing);
     const bool sessionChanged = m_sessionAvailable != now.available;
     const bool coverChanged = m_model.coverVersion != now.coverVersion;
     m_sessionAvailable = now.available;
+    m_smtcPlaying = now.available && now.playing;
 
     if (now.available) {
         m_model.title = now.title;
         m_model.artist = now.artist;
-        m_model.playing = now.playing;
-        if (coverChanged) {
+        if (now.coverPending) {
+            // New track, old artwork: show the placeholder until the new one lands.
+            if (!m_model.coverImage.empty()) {
+                m_model.coverImage.clear();
+                m_model.accent = config::defaultAccentColor;
+            }
+        } else if (coverChanged) {
             m_model.coverImage = now.cover;
             m_model.coverVersion = now.coverVersion;
+            updateAccentFromCover();
         }
     } else {
         m_model.title = config::placeholderTitle;
         m_model.artist = config::placeholderArtist;
-        m_model.playing = false;
         m_model.coverImage.clear();
         m_model.coverVersion = now.coverVersion;
-    }
-    if (coverChanged) {
-        updateAccentFromCover();
+        m_model.accent = config::defaultAccentColor;
     }
 
-    if (textChanged || playingChanged) {
-        log::info("now playing: {} / {} ({})", text::toUtf8(m_model.title), text::toUtf8(m_model.artist),
-                  now.available ? (now.playing ? "playing" : "paused") : "no session");
+    if (textChanged) {
+        log::info("now playing: {} / {}", text::toUtf8(m_model.title), text::toUtf8(m_model.artist));
     }
     if (sessionChanged) {
         manageCapture();
     }
-    if (m_model.playing) {
-        setSpectrumRunning(true);
-    }
+    updatePlayingState();
     if (textChanged) {
         // Exact links belong to the previous track until the API answers.
         m_links.reset();
@@ -449,11 +453,14 @@ void Application::onWidgetClick(POINT position) {
         case interaction::Zone::PlayPause:
             m_media->send(media::TransportCommand::TogglePlayPause);
             // Spotify takes several seconds to report the new state through
-            // SMTC; flip the glyph now and let the event confirm it.
+            // SMTC; flip the glyph now and let the audio confirm it.
             m_model.playing = !m_model.playing;
+            m_smtcPlaying = m_model.playing;
+            m_lastAudioActiveTick = m_model.playing ? GetTickCount64() : 0;
             if (m_model.playing) {
                 setSpectrumRunning(true);
             }
+            log::info("playback shown as {} (click)", m_model.playing ? "playing" : "paused");
             repaintWidget();
             break;
         case interaction::Zone::Next:
@@ -745,6 +752,7 @@ void Application::manageCapture() {
     if (status != CaptureStatus::Running) {
         m_captureRunningLogged = false;
     }
+    setAudioWatch(status == CaptureStatus::Running);
 
     const std::optional<shell::SpotifyProcess> spotify = shell::findSpotify();
     if (!spotify) {
@@ -786,6 +794,67 @@ void Application::setSpectrumRunning(bool running) {
     } else {
         KillTimer(m_messageWindow.get(), spectrumTimerId);
     }
+}
+
+void Application::setAudioWatch(bool running) {
+    if (running == m_audioWatch || !m_messageWindow) {
+        return;
+    }
+    m_audioWatch = running;
+    if (running) {
+        m_audioSeen = false;
+        m_lastWritten = m_capture.samples().totalWritten();
+        SetTimer(m_messageWindow.get(), audioTimerId, config::audioWatchMs, nullptr);
+    } else {
+        KillTimer(m_messageWindow.get(), audioTimerId);
+        updatePlayingState();
+    }
+}
+
+// Looks at the captured audio: new samples above the silence floor mean
+// Spotify is playing, whatever SMTC still says. Stops delivering samples, or
+// delivers silence, for the hold time and it is paused.
+void Application::onAudioTick() {
+    if (m_capture.status() != audio::CaptureStatus::Running) {
+        setAudioWatch(false);
+        return;
+    }
+    const std::uint64_t written = m_capture.samples().totalWritten();
+    const bool advanced = written != m_lastWritten;
+    m_lastWritten = written;
+    if (advanced) {
+        std::array<float, 2048> recent{};
+        m_capture.samples().latest(recent);
+        double energy = 0.0;
+        for (const float sample : recent) {
+            energy += static_cast<double>(sample) * sample;
+        }
+        const double rms = std::sqrt(energy / static_cast<double>(recent.size()));
+        if (rms > config::audioSilenceRms) {
+            m_lastAudioActiveTick = GetTickCount64();
+            m_audioSeen = true;
+        }
+    }
+    updatePlayingState();
+}
+
+// Decides what the play/pause glyph shows. With audio being captured, signal
+// (or its absence for the hold time) wins; otherwise SMTC's status is all
+// there is.
+void Application::updatePlayingState() {
+    bool playing = m_smtcPlaying;
+    if (m_audioWatch && m_audioSeen) {
+        playing = GetTickCount64() - m_lastAudioActiveTick < config::audioPauseHoldMs;
+    }
+    if (playing == m_model.playing) {
+        return;
+    }
+    m_model.playing = playing;
+    log::info("playback shown as {} ({})", playing ? "playing" : "paused", m_audioWatch && m_audioSeen ? "audio" : "smtc");
+    if (playing) {
+        setSpectrumRunning(true);
+    }
+    repaintWidget();
 }
 
 // One visualiser frame. Runs at ~30 fps only while playing, then keeps going

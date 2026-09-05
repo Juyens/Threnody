@@ -151,6 +151,13 @@ text (artwork only when the text changed) as the safety net. Measured after
 that: 1.8 s from the click on "next" to the new title, which is Spotify's
 own announcement delay.
 
+**Play/pause comes from the captured audio, not from SMTC.** Spotify reports
+`PlaybackInfoChanged` 5 to 14 s after the fact. Since the widget already
+captures Spotify's audio, silence (or no new samples) for 1.5 s means paused
+and any signal means playing; SMTC's status is only used when there is no
+capture. A click on play/pause flips the glyph at once and the audio confirms
+it. The same signal empties the visualiser bars on pause.
+
 **The taskbar gets rebuilt.** After a session unlock or an explorer restart,
 an embedded window can be orphaned and UI Automation queries against the
 taskbar can hang rather than fail. Anything that waits on such a query needs

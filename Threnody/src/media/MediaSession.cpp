@@ -129,8 +129,11 @@ winrt::fire_and_forget refreshProperties(std::weak_ptr<Shared> weak) {
                 state.available = true;
                 state.title = std::move(title);
                 state.artist = std::move(artist);
+                if (textChanged) {
+                    state.coverPending = true;  // The old artwork must not stand in for the new track.
+                }
             }
-            haveCover = !shared->state.cover.empty();
+            haveCover = !shared->state.cover.empty() && !shared->state.coverPending;
         }
         if (textChanged) {
             log::info("SMTC properties #{}: text after {} ms", generation, elapsedMs());
@@ -156,14 +159,16 @@ winrt::fire_and_forget refreshProperties(std::weak_ptr<Shared> weak) {
         bool coverChanged = false;
         {
             std::scoped_lock lock{shared->mutex};
-            if (generation > shared->publishedCoverGeneration) {
+            // Only artwork read for the current text may settle it.
+            if (generation > shared->publishedCoverGeneration && generation >= shared->publishedTextGeneration) {
                 shared->publishedCoverGeneration = generation;
                 NowPlaying& state = shared->state;
-                if (state.cover != cover) {
+                if (state.cover != cover || state.coverPending) {
                     state.cover = std::move(cover);
-                    ++state.coverVersion;
+                    ++state.coverVersion;  // Bumped even for identical bytes, so a pending placeholder is replaced.
                     coverChanged = true;
                 }
+                state.coverPending = false;
             }
         }
         if (coverChanged) {

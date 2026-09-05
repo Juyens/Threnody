@@ -55,6 +55,13 @@ inline constexpr float rainbowValue = 1.0f;
 // Cover colour analysis works on a downscaled copy of this many pixels a side.
 inline constexpr unsigned coverSampleSize = 48;
 
+// Play/pause shown from the captured audio: sampled this often, silence
+// below this RMS, and paused once nothing louder arrived for the hold time
+// (long enough to ride out the gap between tracks).
+inline constexpr unsigned audioWatchMs = 200;
+inline constexpr double audioSilenceRms = 1e-4;
+inline constexpr unsigned audioPauseHoldMs = 1500;
+
 // How long to wait before retrying a failed or lost audio capture.
 inline constexpr unsigned captureRetryMs = 10000;
 

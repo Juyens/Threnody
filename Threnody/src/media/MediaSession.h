@@ -18,6 +18,7 @@ struct NowPlaying {
     bool playing{false};
     std::vector<std::uint8_t> cover;  // Encoded image bytes, empty if none.
     std::uint32_t coverVersion{};     // Bumps whenever `cover` changes.
+    bool coverPending{false};         // Text belongs to a new track; `cover` is still the old one.
 };
 
 enum class TransportCommand { Previous, TogglePlayPause, Next };
