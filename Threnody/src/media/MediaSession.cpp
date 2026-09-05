@@ -163,7 +163,11 @@ void pickSession(const std::shared_ptr<Shared>& shared) {
     bool changed = false;
     {
         std::scoped_lock lock{shared->mutex};
-        if (shared->session == chosen) {
+        // GetSessions hands out fresh proxies, so compare by identity of the
+        // source, not of the object: equal ids mean the same session.
+        const bool same = static_cast<bool>(shared->session) == static_cast<bool>(chosen) &&
+                          (!chosen || shared->session.SourceAppUserModelId() == chosen.SourceAppUserModelId());
+        if (same) {
             return;
         }
         if (shared->session) {

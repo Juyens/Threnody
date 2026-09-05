@@ -39,6 +39,16 @@ struct GdiObjectDeleter {
 };
 using unique_hbitmap = std::unique_ptr<std::remove_pointer_t<HBITMAP>, GdiObjectDeleter>;
 
+struct HiconDeleter {
+    void operator()(HICON icon) const noexcept { DestroyIcon(icon); }
+};
+using unique_hicon = std::unique_ptr<std::remove_pointer_t<HICON>, HiconDeleter>;
+
+struct HmenuDeleter {
+    void operator()(HMENU menu) const noexcept { DestroyMenu(menu); }
+};
+using unique_hmenu = std::unique_ptr<std::remove_pointer_t<HMENU>, HmenuDeleter>;
+
 struct CoTaskMemDeleter {
     void operator()(void* memory) const noexcept { CoTaskMemFree(memory); }
 };

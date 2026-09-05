@@ -12,9 +12,12 @@
 #include "render/WidgetRenderer.h"
 #include "settings/Settings.h"
 #include "shell/SpotifyWindow.h"
+#include "spotify/SpotifyClient.h"
 #include "taskbar/RegistryWatcher.h"
 #include "taskbar/Taskbar.h"
 #include "taskbar/WidgetWindow.h"
+#include "tray/SettingsWindow.h"
+#include "tray/TrayIcon.h"
 #include "util/Win32.h"
 
 #include <Windows.h>
@@ -56,6 +59,18 @@ private:
     void toggleColorMode();
     void saveSettings();
 
+    // Tray icon, its menu, and the settings window it opens.
+    void onTrayEvent(WPARAM wParam, LPARAM lParam);
+    void openSettings();
+    void applySettings(const settings::Settings& updated);
+    void testOverlay();
+    void connectSpotify(std::string clientId);
+    void disconnectSpotify();
+    void onSpotifyChanged();
+    void publishSpotifyStatus();
+    [[nodiscard]] bool linksMatchCurrentTrack() const;
+    void quit();
+
     // Lock-key overlay: the hook exists only while the feature is enabled.
     void applyLockKeySettings();
     void onLockKey(overlay::LockKey key, bool on);
@@ -84,6 +99,10 @@ private:
     bool m_sessionAvailable{false};
     shell::SpotifyWindowToggle m_spotifyWindow;
 
+    std::unique_ptr<spotify::SpotifyClient> m_spotify;
+    spotify::Credentials m_savedCredentials;
+    std::optional<spotify::TrackLinks> m_links;
+
     audio::ProcessLoopbackCapture m_capture;
     ULONGLONG m_lastCaptureAttempt{};
     bool m_captureFailureLogged{false};
@@ -94,6 +113,12 @@ private:
 
     std::unique_ptr<overlay::LockKeyOverlay> m_lockOverlay;
     std::unique_ptr<overlay::KeyboardHook> m_keyboardHook;
+    bool m_overlayTestState{false};
+
+    win32::unique_hicon m_trayIconImage;
+    win32::unique_hicon m_appIconImage;
+    std::unique_ptr<tray::TrayIcon> m_tray;
+    std::unique_ptr<tray::SettingsWindow> m_settingsWindow;
 
     std::unique_ptr<taskbar::RegistryWatcher> m_alignmentWatcher;
     std::optional<taskbar::Layout> m_layout;

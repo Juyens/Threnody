@@ -14,11 +14,14 @@ struct LockKeyOverlay {
     bool numLock{true};
     bool scrollLock{true};
     bool insert{true};
+
+    bool operator==(const LockKeyOverlay&) const = default;
 };
 
 // The few preferences that are not compile-time constants. Stored as JSON in
 // the data directory; unknown or malformed fields fall back to defaults.
 struct Settings {
+    bool setupShown{false};  // The settings window opens itself once, on first run.
     bool startWithWindows{false};
     LockKeyOverlay lockKeys;
     ColorMode colorMode{ColorMode::Track};

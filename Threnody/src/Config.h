@@ -111,6 +111,17 @@ inline constexpr wchar_t lockOverlayInsertText[] = L"Insert pulsado";
 inline constexpr wchar_t lockOverlayOnText[] = L"activado";
 inline constexpr wchar_t lockOverlayOffText[] = L"desactivado";
 
+// Settings window (Dear ImGui), client area in DIPs.
+inline constexpr int settingsWindowWidthDip = 460;
+inline constexpr int settingsWindowHeightDip = 740;
+
+// Spotify Web API (authorisation code with PKCE, no client secret). The
+// redirect URI must match the one registered in the Spotify app; the port is
+// fixed so it can be typed into the dashboard once.
+inline constexpr unsigned short spotifyRedirectPort = 38417;
+inline constexpr wchar_t spotifyRedirectUri[] = L"http://127.0.0.1:38417/callback";
+inline constexpr wchar_t spotifyScopes[] = L"user-read-currently-playing user-read-playback-state";
+
 // How often the taskbar is re-checked for rebuilds and layout changes.
 inline constexpr unsigned taskbarHealthCheckMs = 2000;
 

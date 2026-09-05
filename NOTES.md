@@ -48,9 +48,11 @@ Decided after weighing C# and C++/Qt. Summary of the reasoning:
 | Media info | C++/WinRT, `Windows.Media.Control` (SMTC) |
 | Audio | WASAPI process loopback, no library |
 | FFT | kissfft (`kissfft::kissfft-float`, use `kiss_fftr` for real input) |
+| Settings UI | Dear ImGui (`imgui[dx11-binding,win32-binding]`), only the settings window |
+| Settings file | nlohmann-json, `%LOCALAPPDATA%\Threnody\settings.json` |
+| Spotify Web API | C++/WinRT `Windows.Web.Http`, PKCE, refresh token sealed with DPAPI |
 
-kissfft is the only external dependency. Dropping it would remove the need for
-vcpkg entirely.
+All third-party code comes through the vcpkg manifest; all of it is MIT.
 
 ## Plan
 
@@ -142,11 +144,13 @@ an expiry, or the widget stays broken until the process restarts.
 
 ## State
 
-Phases 1 to 6 done.
+All seven phases implemented.
 
-- Message loop, single-instance mutex, file log with exit cause.
+- Message loop, single-instance mutex, file log with exit cause (crash filter
+  logs module+offset; debug builds also log CRT assertion text).
 - Taskbar layout query (`TaskbarAl`, `TrayNotifyWnd`), registry watcher for
-  live alignment changes, re-embedding after an explorer restart.
+  live alignment changes, re-embedding and tray icon re-adding after an
+  explorer restart.
 - Per-pixel layered child window fed by a Direct2D DC render target bound to a
   32-bit premultiplied DIB. Grayscale text antialiasing. DirectWrite fallback
   chain routes CJK to Yu Gothic UI / Microsoft YaHei UI / Malgun Gothic.
@@ -157,23 +161,25 @@ Phases 1 to 6 done.
   thread, mono mix into a lock-free ring; kissfft real FFT of 4096 samples,
   13 log-spaced bands 40 Hz-8 kHz in dB with a treble tilt, peak-meter
   smoothing, 30 fps timer that only runs while playing or settling.
-- Clicks: background/cover toggle the Spotify window (foreground remembered on
-  hover, taskbars ignored, refreshed after each toggle); title and artist open
-  `spotify:search:` URIs; the visualiser toggles track/rainbow colour. Track
-  colour is the dominant saturated hue of the cover. Colour mode persists in
-  `settings.json` (nlohmann-json).
-- Lock-key overlay: WH_KEYBOARD_LL hook on the UI thread posting to the
-  message window; a click-through topmost layered window, 160 x 50 DIP (wider
-  when the Spanish text needs it), centred near the top of the work area,
-  sliding in from off-screen with a fade (300 ms cubic), 2 s hold, sliding
-  back out. Padlock from the reference's SVG path data through a small SVG
-  path parser (`render/SvgPath`); shackle rotates 25 degrees open with a
-  bounce, accent bar shrinks and dims when off. Suppressed while a
-  full-screen app is in front. Verified by injecting Scroll Lock with
-  keybd_event, which the low-level hook sees like a real key.
+- Clicks: background/cover toggle the Spotify window; title and artist open
+  exact `spotify:track:`/`spotify:artist:` URIs when the Web API is connected
+  and the API's track name matches the SMTC title, otherwise
+  `spotify:search:`; the visualiser toggles track/rainbow colour.
+- Lock-key overlay (see the phase 6 notes above).
+- Tray icon drawn at runtime (three bars), left click opens settings, right
+  click offers settings and quit. Settings window: Win32 + D3D11 + Dear ImGui
+  1.92, created and destroyed with the window so nothing renders while it is
+  closed; Vercel-like monochrome style, Segoe UI Variable loaded from
+  `C:\Windows\Fonts`. Options: start with Windows (HKCU Run), lock-key
+  overlay master and per key with a test button, visualiser colour mode,
+  Spotify connection. Opens itself once on first run (`setupShown`).
+- Spotify Web API: PKCE authorisation in the browser, loopback listener on
+  127.0.0.1:38417 for the redirect (one shot, 5 minute timeout, state
+  checked), token exchange/refresh over `Windows.Web.Http`, refresh token
+  stored DPAPI-sealed in settings.json. The Client ID is the user's own
+  Spotify app; the redirect URI to register is shown in the settings window.
 
-The reference places its flyout at the bottom centre; the brief asked for
-the top, so that is what is implemented (constants in `Config.h`).
-
-Next: phase 7, tray icon, Dear ImGui settings window, run-at-startup, and
-the Spotify Web API (PKCE) connection for exact track/artist links.
+Known gaps: the OAuth flow has not been run end-to-end here (it needs the
+user's Spotify app); the assertion that crashed the settings window once
+(22:07, exception 0x80000003 after a CRT assert dialog) has not reproduced;
+the CRT report hook now logs the assertion text if it happens again.

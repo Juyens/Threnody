@@ -21,6 +21,22 @@ add_executable(Threnody WIN32
     "src/overlay/LockKeyOverlay.cpp"
     "src/render/SvgPath.h"
     "src/render/SvgPath.cpp"
+    "src/spotify/LoopbackListener.h"
+    "src/spotify/LoopbackListener.cpp"
+    "src/spotify/Pkce.h"
+    "src/spotify/Pkce.cpp"
+    "src/spotify/SpotifyClient.h"
+    "src/spotify/SpotifyClient.cpp"
+    "src/util/Dpapi.h"
+    "src/util/Dpapi.cpp"
+    "src/render/IconFactory.h"
+    "src/render/IconFactory.cpp"
+    "src/shell/Startup.h"
+    "src/shell/Startup.cpp"
+    "src/tray/SettingsWindow.h"
+    "src/tray/SettingsWindow.cpp"
+    "src/tray/TrayIcon.h"
+    "src/tray/TrayIcon.cpp"
     "src/render/CoverSampler.h"
     "src/render/CoverSampler.cpp"
     "src/settings/Settings.h"
@@ -88,12 +104,43 @@ target_compile_definitions(Threnody PRIVATE
 
 find_package(kissfft CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
 
 target_link_libraries(Threnody PRIVATE
     kissfft::kissfft-float
     nlohmann_json::nlohmann_json
-    d2d1 dwrite windowscodecs dcomp
+    imgui::imgui
+    d2d1 dwrite windowscodecs dcomp d3d11 dxgi dwmapi
     windowsapp
     mmdevapi
-    user32 gdi32 ole32 shell32 shcore advapi32
+    user32 gdi32 ole32 shell32 shcore advapi32 crypt32 bcrypt ws2_32
+)
+
+# Checks for the screen-free parts: parsing, colour, spectrum, layout,
+# settings, PKCE and the loopback listener. Console app, no framework.
+add_executable(ThrenodyTests
+    "tests/Tests.cpp"
+    "src/color/ColorSpace.cpp"
+    "src/color/DominantColor.cpp"
+    "src/dsp/SpectrumAnalyzer.cpp"
+    "src/media/SourceAppId.cpp"
+    "src/render/WidgetLayout.cpp"
+    "src/settings/Settings.cpp"
+    "src/shell/SpotifyLinks.cpp"
+    "src/spotify/LoopbackListener.cpp"
+    "src/spotify/Pkce.cpp"
+    "src/util/Log.cpp"
+    "src/util/Result.cpp"
+    "src/util/Text.cpp"
+)
+target_include_directories(ThrenodyTests PRIVATE "src")
+target_compile_features(ThrenodyTests PRIVATE cxx_std_20)
+target_compile_options(ThrenodyTests PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8 /W4 /permissive- /Zc:__cplusplus /EHsc>
+)
+target_compile_definitions(ThrenodyTests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(ThrenodyTests PRIVATE
+    kissfft::kissfft-float
+    nlohmann_json::nlohmann_json
+    user32 shell32 ole32 bcrypt ws2_32
 )

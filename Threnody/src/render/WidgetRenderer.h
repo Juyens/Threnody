@@ -28,8 +28,9 @@ public:
     [[nodiscard]] Result<void> draw(LayeredSurface& surface, const WidgetModel& model, const WidgetLayout& layout,
                                     UINT dpi);
 
-    // Shared imaging factory, for callers that decode images for analysis.
+    // Shared factories, for callers that decode images or draw icons.
     [[nodiscard]] IWICImagingFactory& wic() const noexcept { return *m_graphics.wic; }
+    [[nodiscard]] Graphics& graphics() noexcept { return m_graphics; }
 
 private:
     struct TextLine {

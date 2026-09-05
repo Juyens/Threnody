@@ -3,9 +3,17 @@
 #include "Config.h"
 #include "color/DominantColor.h"
 #include "render/CoverSampler.h"
+#include "render/IconFactory.h"
 #include "shell/Fullscreen.h"
 #include "shell/SpotifyLinks.h"
 #include "shell/SpotifyProcess.h"
+#include "shell/Startup.h"
+#include "util/Dpapi.h"
+
+#include <windowsx.h>
+
+#include <algorithm>
+#include <cwctype>
 #include "util/Log.h"
 #include "util/Text.h"
 
@@ -21,6 +29,21 @@ constexpr UINT_PTR spectrumTimerId = 2;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
+constexpr UINT WM_THRENODY_TRAY = WM_APP + 4;
+constexpr UINT WM_THRENODY_SPOTIFY = WM_APP + 5;
+
+bool equalsIgnoreCase(std::wstring_view a, std::wstring_view b) noexcept {
+    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](wchar_t x, wchar_t y) {
+               return std::towlower(x) == std::towlower(y);
+           });
+}
+
+constexpr UINT menuSettingsId = 1;
+constexpr UINT menuQuitId = 2;
+constexpr tray::MenuItem trayMenu[] = {
+    {.id = menuSettingsId, .text = L"Ajustes…"},
+    {.id = menuQuitId, .text = L"Salir", .separatorBefore = true},
+};
 
 constexpr const char* alignmentName(taskbar::Alignment alignment) noexcept {
     return alignment == taskbar::Alignment::Left ? "left" : "center";
@@ -88,15 +111,69 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     m_media = std::make_unique<media::MediaSession>(
         [messageWindow] { PostMessageW(messageWindow, WM_THRENODY_MEDIA_CHANGED, 0, 0); });
 
+    m_spotify = std::make_unique<spotify::SpotifyClient>(
+        [messageWindow] { PostMessageW(messageWindow, WM_THRENODY_SPOTIFY, 0, 0); });
+    if (!m_settings.spotifyClientId.empty() && !m_settings.spotifyRefreshTokenProtected.empty()) {
+        if (Result<std::string> token = dpapi::unprotect(m_settings.spotifyRefreshTokenProtected); token) {
+            m_savedCredentials = {.clientId = m_settings.spotifyClientId, .refreshToken = std::move(token.value())};
+            m_spotify->setCredentials(m_savedCredentials);
+            log::info("Spotify Web API credentials restored");
+        } else {
+            log::warn("Spotify refresh token unreadable, reconnect needed: {}", token.error().describe());
+        }
+    }
+
+    if (m_renderer) {
+        const UINT dpi = GetDpiForSystem();
+        if (Result<win32::unique_hicon> icon =
+                render::renderAppIcon(m_renderer->graphics(), GetSystemMetricsForDpi(SM_CXSMICON, dpi));
+            icon) {
+            m_trayIconImage = std::move(icon.value());
+        } else {
+            log::warn("tray icon image unavailable: {}", icon.error().describe());
+        }
+        if (Result<win32::unique_hicon> icon =
+                render::renderAppIcon(m_renderer->graphics(), GetSystemMetricsForDpi(SM_CXICON, dpi));
+            icon) {
+            m_appIconImage = std::move(icon.value());
+        }
+    }
+    m_tray = std::make_unique<tray::TrayIcon>(messageWindow, WM_THRENODY_TRAY, m_trayIconImage.get(), L"Threnody");
+
+    m_settingsWindow = std::make_unique<tray::SettingsWindow>(
+        instance, tray::SettingsActions{
+                      .onChanged = [this](const settings::Settings& updated) { applySettings(updated); },
+                      .onTestOverlay = [this] { testOverlay(); },
+                      .onConnectSpotify = [this](std::string clientId) { connectSpotify(std::move(clientId)); },
+                      .onDisconnectSpotify = [this] { disconnectSpotify(); },
+                      .onQuit = [this] { quit(); },
+                  });
+
+    // Keep the Run entry pointing at wherever the executable lives now.
+    if (m_settings.startWithWindows) {
+        if (const Result<void> set = shell::setStartWithWindows(true); !set) {
+            log::warn("{}", set.error().describe());
+        }
+    }
+
     SetTimer(messageWindow, healthTimerId, config::taskbarHealthCheckMs, nullptr);
     syncWithTaskbar(true);
+
+    if (!m_settings.setupShown) {
+        m_settings.setupShown = true;
+        saveSettings();
+        openSettings();
+    }
 }
 
 Application::~Application() {
-    // Both post to the message window; stop them before the window goes.
+    // These post to the message window; stop them before the window goes.
+    m_spotify.reset();
     m_media.reset();
     m_alignmentWatcher.reset();
     m_capture.stop();
+    m_settingsWindow.reset();
+    m_tray.reset();
 }
 
 int Application::run() {
@@ -129,6 +206,9 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         log::info("taskbar created; re-embedding");
         m_layout.reset();
         syncWithTaskbar(true);
+        if (m_tray) {
+            m_tray->readd();
+        }
         return 0;
     }
 
@@ -152,6 +232,21 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 
         case WM_THRENODY_LOCK_KEY:
             onLockKey(static_cast<overlay::LockKey>(wParam), lParam != 0);
+            return 0;
+
+        case WM_THRENODY_TRAY:
+            onTrayEvent(wParam, lParam);
+            return 0;
+
+        case WM_THRENODY_SPOTIFY:
+            onSpotifyChanged();
+            return 0;
+
+        case WM_ENDSESSION:
+            if (wParam) {
+                log::info("exit: session ending");
+                log::flush();
+            }
             return 0;
 
         case WM_CLOSE:
@@ -291,6 +386,11 @@ void Application::onMediaChanged() {
         setSpectrumRunning(true);
     }
     if (textChanged) {
+        // Exact links belong to the previous track until the API answers.
+        m_links.reset();
+        if (now.available && m_spotify && m_spotify->connected()) {
+            m_spotify->requestNowPlaying();
+        }
         syncWithTaskbar(true);  // Width may change with the text.
     } else {
         repaintWidget();
@@ -329,14 +429,18 @@ void Application::onWidgetClick(POINT position) {
             m_spotifyWindow.toggle();
             break;
         case interaction::Zone::Title:
-            if (m_sessionAvailable && !m_model.title.empty()) {
+            if (linksMatchCurrentTrack() && !m_links->trackUri.empty()) {
+                shell::openSpotifyUri(m_links->trackUri);
+            } else if (m_sessionAvailable && !m_model.title.empty()) {
                 shell::openSpotifySearch(m_model.artist.empty() ? m_model.title : m_model.artist + L" " + m_model.title);
             } else {
                 m_spotifyWindow.toggle();
             }
             break;
         case interaction::Zone::Artist:
-            if (m_sessionAvailable && !m_model.artist.empty()) {
+            if (linksMatchCurrentTrack() && !m_links->artistUri.empty()) {
+                shell::openSpotifyUri(m_links->artistUri);
+            } else if (m_sessionAvailable && !m_model.artist.empty()) {
                 shell::openSpotifySearch(m_model.artist);
             } else {
                 m_spotifyWindow.toggle();
@@ -369,7 +473,140 @@ void Application::toggleColorMode() {
     m_model.colorMode = m_settings.colorMode;
     log::info("colour mode: {}", m_model.colorMode == ColorMode::Rainbow ? "rainbow" : "track");
     saveSettings();
+    if (m_settingsWindow) {
+        m_settingsWindow->setSettings(m_settings);
+    }
     repaintWidget();
+}
+
+void Application::onTrayEvent(WPARAM wParam, LPARAM lParam) {
+    const UINT event = LOWORD(lParam);
+    switch (event) {
+        case NIN_SELECT:
+        case NIN_KEYSELECT:
+            openSettings();
+            break;
+        case WM_CONTEXTMENU: {
+            const POINT anchor{.x = GET_X_LPARAM(wParam), .y = GET_Y_LPARAM(wParam)};
+            switch (m_tray ? m_tray->showMenu(trayMenu, anchor) : 0) {
+                case menuSettingsId: openSettings(); break;
+                case menuQuitId: quit(); break;
+                default: break;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+void Application::openSettings() {
+    if (!m_settingsWindow) {
+        return;
+    }
+    if (const Result<void> opened = m_settingsWindow->open(m_settings, m_appIconImage.get()); !opened) {
+        log::error("settings window: {}", opened.error().describe());
+        return;
+    }
+    publishSpotifyStatus();
+}
+
+// Every change from the settings window lands here and takes effect at once.
+void Application::applySettings(const settings::Settings& updated) {
+    const settings::Settings previous = m_settings;
+    m_settings = updated;
+
+    if (previous.colorMode != updated.colorMode) {
+        m_model.colorMode = updated.colorMode;
+        log::info("colour mode: {}", m_model.colorMode == ColorMode::Rainbow ? "rainbow" : "track");
+        repaintWidget();
+    }
+    if (previous.startWithWindows != updated.startWithWindows) {
+        if (const Result<void> set = shell::setStartWithWindows(updated.startWithWindows); set) {
+            log::info("start with Windows: {}", updated.startWithWindows ? "on" : "off");
+        } else {
+            log::error("{}", set.error().describe());
+        }
+    }
+    applyLockKeySettings();
+    saveSettings();
+}
+
+void Application::testOverlay() {
+    if (m_lockOverlay) {
+        m_overlayTestState = !m_overlayTestState;
+        m_lockOverlay->show(overlay::LockKey::CapsLock, m_overlayTestState);
+    }
+}
+
+void Application::connectSpotify(std::string clientId) {
+    m_settings.spotifyClientId = clientId;
+    saveSettings();
+    if (m_spotify) {
+        m_spotify->beginAuthorization(std::move(clientId));
+    }
+}
+
+void Application::disconnectSpotify() {
+    if (m_spotify) {
+        m_spotify->disconnect();
+    }
+    m_savedCredentials = {};
+    m_links.reset();
+    m_settings.spotifyRefreshTokenProtected.clear();
+    saveSettings();
+    publishSpotifyStatus();
+}
+
+// The Web API client changed state or answered: persist rotated credentials,
+// pick up exact links, and keep the settings window informed.
+void Application::onSpotifyChanged() {
+    if (!m_spotify) {
+        return;
+    }
+    if (m_spotify->connected()) {
+        const spotify::Credentials current = m_spotify->credentials();
+        if (current != m_savedCredentials && !current.refreshToken.empty()) {
+            if (Result<std::string> sealed = dpapi::protect(current.refreshToken); sealed) {
+                m_settings.spotifyClientId = current.clientId;
+                m_settings.spotifyRefreshTokenProtected = std::move(sealed.value());
+                m_savedCredentials = current;
+                saveSettings();
+            } else {
+                log::error("{}", sealed.error().describe());
+            }
+        }
+        if (!m_links && m_sessionAvailable) {
+            const std::optional<spotify::TrackLinks> links = m_spotify->links();
+            if (links) {
+                m_links = links;
+                log::info("Spotify links: {} -> {}", text::toUtf8(links->trackName), text::toUtf8(links->trackUri));
+            } else {
+                m_spotify->requestNowPlaying();
+            }
+        }
+    }
+    publishSpotifyStatus();
+}
+
+void Application::publishSpotifyStatus() {
+    if (!m_settingsWindow || !m_spotify) {
+        return;
+    }
+    const spotify::Status status = m_spotify->status();
+    m_settingsWindow->setSpotifyStatus(
+        {.connected = status.state == spotify::AuthState::Connected, .detail = status.detail});
+}
+
+bool Application::linksMatchCurrentTrack() const {
+    return m_links && m_sessionAvailable && equalsIgnoreCase(m_links->trackName, m_model.title);
+}
+
+void Application::quit() {
+    if (m_messageWindow) {
+        log::info("quit requested from the tray");
+        PostMessageW(m_messageWindow.get(), WM_CLOSE, 0, 0);
+    }
 }
 
 void Application::saveSettings() {

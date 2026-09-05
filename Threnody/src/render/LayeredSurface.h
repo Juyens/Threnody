@@ -26,6 +26,7 @@ public:
 
     [[nodiscard]] SIZE size() const noexcept { return m_size; }
     [[nodiscard]] HDC dc() const noexcept { return m_dc.get(); }
+    [[nodiscard]] HBITMAP bitmap() const noexcept { return m_bitmap.get(); }
     [[nodiscard]] std::span<std::uint32_t> pixels() noexcept;
 
     // Hands the bitmap to DWM as the window's content. The window keeps its
