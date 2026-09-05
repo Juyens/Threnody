@@ -9,6 +9,7 @@
 #include <winrt/Windows.Media.Control.h>
 #include <winrt/Windows.Storage.Streams.h>
 
+#include <chrono>
 #include <mutex>
 
 namespace threnody::media {
@@ -40,9 +41,13 @@ struct MediaSession::Shared {
     winrt::event_token propertiesChangedToken{};
     winrt::event_token playbackChangedToken{};
 
-    // Incremented per property refresh; a refresh that finishes after a newer
-    // one started discards its result instead of overwriting fresher data.
+    // Each refresh gets a generation. Spotify raises several property events
+    // per track (text first, artwork later), so every refresh publishes as
+    // soon as it has something, and a result is only dropped when a newer
+    // refresh has already published that part.
     std::uint32_t propertiesGeneration{};
+    std::uint32_t publishedTextGeneration{};
+    std::uint32_t publishedCoverGeneration{};
 
     void notify() const {
         ChangeHandler handler;
@@ -72,11 +77,15 @@ void refreshPlayback(const std::shared_ptr<Shared>& shared) {
     try {
         const auto info = session.GetPlaybackInfo();
         const bool playing = info.PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
+        bool changed = false;
         {
             std::scoped_lock lock{shared->mutex};
+            changed = shared->state.playing != playing;
             shared->state.playing = playing;
         }
-        shared->notify();
+        if (changed) {
+            shared->notify();
+        }
     } catch (const winrt::hresult_error& e) {
         log::warn("SMTC GetPlaybackInfo failed: {}", describe(e));
     }
@@ -98,11 +107,40 @@ winrt::fire_and_forget refreshProperties(std::weak_ptr<Shared> weak) {
     if (!session) {
         co_return;
     }
+    const auto started = std::chrono::steady_clock::now();
+    const auto elapsedMs = [&] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    };
 
     try {
         const auto properties = co_await session.TryGetMediaPropertiesAsync();
         std::wstring title{properties.Title()};
         std::wstring artist{properties.Artist()};
+
+        // Text first: the widget should not wait for the artwork download.
+        bool textChanged = false;
+        bool haveCover = false;
+        {
+            std::scoped_lock lock{shared->mutex};
+            if (generation > shared->publishedTextGeneration) {
+                shared->publishedTextGeneration = generation;
+                NowPlaying& state = shared->state;
+                textChanged = !state.available || state.title != title || state.artist != artist;
+                state.available = true;
+                state.title = std::move(title);
+                state.artist = std::move(artist);
+            }
+            haveCover = !shared->state.cover.empty();
+        }
+        if (textChanged) {
+            log::info("SMTC properties #{}: text after {} ms", generation, elapsedMs());
+            shared->notify();
+        }
+        // This also runs from a 2 s poll; downloading the same artwork each
+        // time would be wasteful. Spotify changes artwork with the text.
+        if (!textChanged && haveCover) {
+            co_return;
+        }
 
         std::vector<std::uint8_t> cover;
         if (const auto thumbnail = properties.Thumbnail()) {
@@ -115,21 +153,23 @@ winrt::fire_and_forget refreshProperties(std::weak_ptr<Shared> weak) {
             }
         }
 
+        bool coverChanged = false;
         {
             std::scoped_lock lock{shared->mutex};
-            if (generation != shared->propertiesGeneration) {
-                co_return;  // A newer refresh is in flight.
-            }
-            NowPlaying& state = shared->state;
-            state.available = true;
-            state.title = std::move(title);
-            state.artist = std::move(artist);
-            if (state.cover != cover) {
-                state.cover = std::move(cover);
-                ++state.coverVersion;
+            if (generation > shared->publishedCoverGeneration) {
+                shared->publishedCoverGeneration = generation;
+                NowPlaying& state = shared->state;
+                if (state.cover != cover) {
+                    state.cover = std::move(cover);
+                    ++state.coverVersion;
+                    coverChanged = true;
+                }
             }
         }
-        shared->notify();
+        if (coverChanged) {
+            log::info("SMTC properties #{}: cover after {} ms", generation, elapsedMs());
+            shared->notify();
+        }
     } catch (const winrt::hresult_error& e) {
         log::warn("SMTC TryGetMediaPropertiesAsync failed: {}", describe(e));
     }
@@ -161,15 +201,19 @@ void pickSession(const std::shared_ptr<Shared>& shared) {
     }
 
     bool changed = false;
+    bool sourceChanged = false;
     {
         std::scoped_lock lock{shared->mutex};
-        // GetSessions hands out fresh proxies, so compare by identity of the
-        // source, not of the object: equal ids mean the same session.
-        const bool same = static_cast<bool>(shared->session) == static_cast<bool>(chosen) &&
-                          (!chosen || shared->session.SourceAppUserModelId() == chosen.SourceAppUserModelId());
-        if (same) {
+        // Spotify recreates its SMTC session now and then (SessionsChanged
+        // fires, GetSessions hands out a new object for the same id) and the
+        // old object stops raising events. So the handlers must move to the
+        // new object whenever the *object* differs; the id only decides
+        // whether this is worth a log line.
+        if (shared->session == chosen) {
             return;
         }
+        sourceChanged = static_cast<bool>(shared->session) != static_cast<bool>(chosen) ||
+                        (chosen && shared->session.SourceAppUserModelId() != chosen.SourceAppUserModelId());
         if (shared->session) {
             shared->session.MediaPropertiesChanged(shared->propertiesChangedToken);
             shared->session.PlaybackInfoChanged(shared->playbackChangedToken);
@@ -193,7 +237,11 @@ void pickSession(const std::shared_ptr<Shared>& shared) {
     }
 
     if (changed) {
-        log::info("SMTC Spotify session {}", chosen ? "found" : "gone");
+        if (sourceChanged) {
+            log::info("SMTC Spotify session {}", chosen ? "found" : "gone");
+        } else {
+            log::info("SMTC session object replaced; handlers moved");
+        }
         if (chosen) {
             refreshPlayback(shared);
             refreshProperties(shared);
@@ -215,7 +263,11 @@ winrt::fire_and_forget start(std::weak_ptr<Shared> weak) {
             shared->manager = manager;
             shared->sessionsChangedToken = manager.SessionsChanged([weak](const auto&, const auto&) {
                 if (auto s = weak.lock()) {
+                    // Spotify raises this on track changes too; the session
+                    // may be the same object, so refresh regardless.
                     pickSession(s);
+                    refreshPlayback(s);
+                    refreshProperties(s);
                 }
             });
         }
@@ -272,6 +324,19 @@ MediaSession::~MediaSession() {
 NowPlaying MediaSession::snapshot() const {
     std::scoped_lock lock{m_shared->mutex};
     return m_shared->state;
+}
+
+void MediaSession::poll() const {
+    pickSession(m_shared);
+    bool haveSession = false;
+    {
+        std::scoped_lock lock{m_shared->mutex};
+        haveSession = static_cast<bool>(m_shared->session);
+    }
+    if (haveSession) {
+        refreshPlayback(m_shared);
+        refreshProperties(m_shared);
+    }
 }
 
 void MediaSession::send(TransportCommand command) const {

@@ -38,6 +38,12 @@ public:
     [[nodiscard]] NowPlaying snapshot() const;
     void send(TransportCommand command) const;
 
+    // Safety net for the event path, meant for a slow timer: re-checks which
+    // session object Spotify exposes, and re-reads playback state and text
+    // (artwork only when the text changed). Spotify's per-session events are
+    // not reliable, so this is what guarantees the widget follows the track.
+    void poll() const;
+
     struct Shared;
 
 private:

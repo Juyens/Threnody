@@ -138,6 +138,19 @@ dialog whose own modal loop re-enters once more, and the process ends in
 refuses re-entry. The terminate handler and the symbolised stack trace in the
 log are what found this.
 
+**Spotify's SMTC session events are not a reliable feed.** Spotify raises
+`MediaPropertiesChanged` four to six times per track over ~8 s (text first,
+artwork later), sometimes raises nothing at all while paused and idle, and
+`SessionsChanged` fires on track changes with a session object that may or
+may not be the same one. Consequences baked into `media/MediaSession`: every
+refresh publishes text as soon as it has it and artwork separately (a result
+is only dropped if a newer refresh already published that part); handlers
+move to the new session object whenever the object differs; `SessionsChanged`
+always triggers a full refresh; and a 2 s poll re-reads playback state and
+text (artwork only when the text changed) as the safety net. Measured after
+that: 1.8 s from the click on "next" to the new title, which is Spotify's
+own announcement delay.
+
 **The taskbar gets rebuilt.** After a session unlock or an explorer restart,
 an embedded window can be orphaned and UI Automation queries against the
 taskbar can hang rather than fail. Anything that waits on such a query needs

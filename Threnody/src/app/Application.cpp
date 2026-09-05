@@ -224,6 +224,9 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             if (wParam == healthTimerId) {
                 syncWithTaskbar(false);
                 manageCapture();
+                if (m_media) {
+                    m_media->poll();
+                }
             } else if (wParam == spectrumTimerId) {
                 onSpectrumFrame();
             } else if (wParam == hoverTimerId) {
