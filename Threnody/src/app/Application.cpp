@@ -1,6 +1,9 @@
 #include "app/Application.h"
 
 #include "Config.h"
+#include "color/DominantColor.h"
+#include "render/CoverSampler.h"
+#include "shell/SpotifyLinks.h"
 #include "shell/SpotifyProcess.h"
 #include "util/Log.h"
 #include "util/Text.h"
@@ -31,8 +34,10 @@ int dipToPixels(float dip, UINT dpi) noexcept {
 
 }  // namespace
 
-Application::Application(HINSTANCE instance)
+Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory)
     : m_instance(instance),
+      m_dataDirectory(std::move(dataDirectory)),
+      m_settings(settings::load(m_dataDirectory / settings::fileName)),
       m_messageClass(WNDCLASSEXW{
           .cbSize = sizeof(WNDCLASSEXW),
           .lpfnWndProc = &Application::messageProc,
@@ -59,8 +64,10 @@ Application::Application(HINSTANCE instance)
 
     m_model.title = config::placeholderTitle;
     m_model.artist = config::placeholderArtist;
+    m_model.colorMode = m_settings.colorMode;
 
     m_widget.onClick([this](POINT position) { onWidgetClick(position); });
+    m_widget.onHover([this] { m_spotifyWindow.rememberForeground(); });
 
     m_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
 
@@ -237,13 +244,14 @@ void Application::onMediaChanged() {
                                            : (m_model.title != config::placeholderTitle);
     const bool playingChanged = m_model.playing != (now.available && now.playing);
     const bool sessionChanged = m_sessionAvailable != now.available;
+    const bool coverChanged = m_model.coverVersion != now.coverVersion;
     m_sessionAvailable = now.available;
 
     if (now.available) {
         m_model.title = now.title;
         m_model.artist = now.artist;
         m_model.playing = now.playing;
-        if (m_model.coverVersion != now.coverVersion) {
+        if (coverChanged) {
             m_model.coverImage = now.cover;
             m_model.coverVersion = now.coverVersion;
         }
@@ -253,6 +261,9 @@ void Application::onMediaChanged() {
         m_model.playing = false;
         m_model.coverImage.clear();
         m_model.coverVersion = now.coverVersion;
+    }
+    if (coverChanged) {
+        updateAccentFromCover();
     }
 
     if (textChanged || playingChanged) {
@@ -272,6 +283,22 @@ void Application::onMediaChanged() {
     }
 }
 
+void Application::updateAccentFromCover() {
+    m_model.accent = config::defaultAccentColor;
+    if (m_model.coverImage.empty() || !m_renderer) {
+        return;
+    }
+    Result<std::vector<std::uint32_t>> pixels =
+        render::sampleCover(m_renderer->wic(), m_model.coverImage, config::coverSampleSize);
+    if (!pixels) {
+        log::warn("cover colour analysis skipped: {}", pixels.error().describe());
+        return;
+    }
+    m_model.accent = color::dominantColor(*pixels, config::defaultAccentColor);
+    log::info("cover accent: rgb({:.0f}, {:.0f}, {:.0f})", m_model.accent.r * 255.0f, m_model.accent.g * 255.0f,
+              m_model.accent.b * 255.0f);
+}
+
 void Application::onWidgetClick(POINT position) {
     if (!m_layout) {
         return;
@@ -283,6 +310,24 @@ void Application::onWidgetClick(POINT position) {
     log::info("click at ({:.0f}, {:.0f}) dip -> zone {}", x, y, static_cast<int>(zone));
 
     switch (zone) {
+        case interaction::Zone::Background:
+        case interaction::Zone::Cover:
+            m_spotifyWindow.toggle();
+            break;
+        case interaction::Zone::Title:
+            if (m_sessionAvailable && !m_model.title.empty()) {
+                shell::openSpotifySearch(m_model.artist.empty() ? m_model.title : m_model.artist + L" " + m_model.title);
+            } else {
+                m_spotifyWindow.toggle();
+            }
+            break;
+        case interaction::Zone::Artist:
+            if (m_sessionAvailable && !m_model.artist.empty()) {
+                shell::openSpotifySearch(m_model.artist);
+            } else {
+                m_spotifyWindow.toggle();
+            }
+            break;
         case interaction::Zone::Previous:
             m_media->send(media::TransportCommand::Previous);
             break;
@@ -299,8 +344,23 @@ void Application::onWidgetClick(POINT position) {
         case interaction::Zone::Next:
             m_media->send(media::TransportCommand::Next);
             break;
-        default:
-            break;  // Remaining zones arrive with the interaction phase.
+        case interaction::Zone::Visualizer:
+            toggleColorMode();
+            break;
+    }
+}
+
+void Application::toggleColorMode() {
+    m_settings.colorMode = m_settings.colorMode == ColorMode::Track ? ColorMode::Rainbow : ColorMode::Track;
+    m_model.colorMode = m_settings.colorMode;
+    log::info("colour mode: {}", m_model.colorMode == ColorMode::Rainbow ? "rainbow" : "track");
+    saveSettings();
+    repaintWidget();
+}
+
+void Application::saveSettings() {
+    if (const Result<void> saved = settings::save(m_settings, m_dataDirectory / settings::fileName); !saved) {
+        log::error("{}", saved.error().describe());
     }
 }
 
@@ -371,7 +431,8 @@ void Application::setSpectrumRunning(bool running) {
 }
 
 // One visualiser frame. Runs at ~30 fps only while playing, then keeps going
-// just long enough for the bars to settle on the baseline.
+// just long enough for the bars to settle on the baseline. The rainbow
+// gradient travels while frames run and stands still otherwise.
 void Application::onSpectrumFrame() {
     if (m_model.playing && m_capture.status() == audio::CaptureStatus::Running) {
         m_capture.samples().latest(m_frame);
@@ -380,6 +441,11 @@ void Application::onSpectrumFrame() {
         m_analyzer.decay();
     }
     m_model.spectrum = m_analyzer.bands();
+
+    if (m_model.colorMode == ColorMode::Rainbow) {
+        const float step = static_cast<float>(config::spectrumFrameMs) / (1000.0f * config::rainbowCycleSeconds);
+        m_model.rainbowPhase = std::fmod(m_model.rainbowPhase + step, 1.0f);
+    }
     repaintWidget();
 
     if (!m_model.playing && m_analyzer.idle()) {

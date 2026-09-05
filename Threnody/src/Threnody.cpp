@@ -21,8 +21,10 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         return EXIT_SUCCESS;
     }
 
-    if (const Result<std::filesystem::path> dataDir = paths::dataDirectory(); dataDir) {
-        log::init(*dataDir / config::logFileName);
+    std::filesystem::path dataDirectory;
+    if (const Result<std::filesystem::path> dir = paths::dataDirectory(); dir) {
+        dataDirectory = *dir;
+        log::init(dataDirectory / config::logFileName);
     }
     crash::install();
     log::info("Threnody starting, pid {}", GetCurrentProcessId());
@@ -32,7 +34,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         // Single-threaded apartment on the UI thread: WIC, the tray icon and
         // the WinRT media session all live here.
         winrt::init_apartment(winrt::apartment_type::single_threaded);
-        Application app{instance};
+        Application app{instance, dataDirectory};
         exitCode = app.run();
     } catch (const winrt::hresult_error& e) {
         log::error("exit: unhandled hresult_error 0x{:08X}: {}", static_cast<unsigned long>(e.code().value),

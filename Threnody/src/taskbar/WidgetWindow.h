@@ -36,6 +36,8 @@ public:
     void show() const noexcept;
 
     void onClick(ClickHandler handler) { m_onClick = std::move(handler); }
+    // Fired once each time the pointer enters the widget.
+    void onHover(std::function<void()> handler) { m_onHover = std::move(handler); }
 
     [[nodiscard]] HWND hwnd() const noexcept { return m_hwnd.get(); }
 
@@ -47,6 +49,8 @@ private:
     win32::WindowClass m_class;
     win32::unique_hwnd m_hwnd;
     ClickHandler m_onClick;
+    std::function<void()> m_onHover;
+    bool m_hovering{false};
 };
 
 }  // namespace threnody::taskbar

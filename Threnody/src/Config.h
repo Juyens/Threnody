@@ -44,6 +44,17 @@ inline constexpr float spectrumAttack = 0.65f;
 inline constexpr float spectrumRelease = 0.86f;
 inline constexpr unsigned spectrumFrameMs = 33;  // ~30 fps
 
+// Rainbow colour mode: how much of the hue circle the thirteen bars span at
+// once, how fast the gradient travels (full cycle in this many seconds), and
+// the saturation/value of the bars.
+inline constexpr float rainbowHueSpan = 0.75f;
+inline constexpr float rainbowCycleSeconds = 6.0f;
+inline constexpr float rainbowSaturation = 0.80f;
+inline constexpr float rainbowValue = 1.0f;
+
+// Cover colour analysis works on a downscaled copy of this many pixels a side.
+inline constexpr unsigned coverSampleSize = 48;
+
 // How long to wait before retrying a failed or lost audio capture.
 inline constexpr unsigned captureRetryMs = 10000;
 

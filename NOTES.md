@@ -142,7 +142,7 @@ an expiry, or the widget stays broken until the process restarts.
 
 ## State
 
-Phases 1 to 4 done.
+Phases 1 to 5 done.
 
 - Message loop, single-instance mutex, file log with exit cause.
 - Taskbar layout query (`TaskbarAl`, `TrayNotifyWnd`), registry watcher for
@@ -157,8 +157,11 @@ Phases 1 to 4 done.
   thread, mono mix into a lock-free ring; kissfft real FFT of 4096 samples,
   13 log-spaced bands 40 Hz-8 kHz in dB with a treble tilt, peak-meter
   smoothing, 30 fps timer that only runs while playing or settling.
-- Widget width follows the measured text, capped; layout zones are plain
-  arithmetic in `render/WidgetLayout`, reused by `interaction/HitTest`.
+- Clicks: background/cover toggle the Spotify window (foreground remembered on
+  hover, taskbars ignored, refreshed after each toggle); title and artist open
+  `spotify:search:` URIs; the visualiser toggles track/rainbow colour. Track
+  colour is the dominant saturated hue of the cover, pushed to a legible
+  saturation and lightness. Rainbow travels while frames run, static when
+  paused. Colour mode persists in `settings.json` (nlohmann-json).
 
-Next: phase 5, clicks (Spotify window toggle, artist/title links, colour
-mode) and the colour extraction.
+Next: phase 6, the lock-key overlay (reference: FluentFlyout's LockWindow).

@@ -1,6 +1,7 @@
 #include "render/WidgetRenderer.h"
 
 #include "Config.h"
+#include "color/ColorSpace.h"
 
 #include <algorithm>
 #include <cmath>
@@ -406,6 +407,10 @@ void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel&
     fill(model.accent);
     float x = zone.left;
     for (int i = 0; i < spectrumBarCount; ++i) {
+        if (model.colorMode == ColorMode::Rainbow) {
+            const float hue = model.rainbowPhase + static_cast<float>(i) * rainbowHueSpan / spectrumBarCount;
+            fill(color::fromHsv(hue, rainbowSaturation, rainbowValue));
+        }
         const float value = std::clamp(model.spectrum[static_cast<std::size_t>(i)], 0.0f, 1.0f);
         const float height = spectrumBaselineDip + value * (maxHeight - spectrumBaselineDip);
         const D2D1_ROUNDED_RECT bar{

@@ -8,6 +8,8 @@
 #include "render/WidgetLayout.h"
 #include "render/WidgetModel.h"
 #include "render/WidgetRenderer.h"
+#include "settings/Settings.h"
+#include "shell/SpotifyWindow.h"
 #include "taskbar/RegistryWatcher.h"
 #include "taskbar/Taskbar.h"
 #include "taskbar/WidgetWindow.h"
@@ -16,6 +18,7 @@
 #include <Windows.h>
 
 #include <array>
+#include <filesystem>
 #include <memory>
 #include <optional>
 
@@ -24,11 +27,11 @@ namespace threnody {
 // Owns the message loop and wires the pieces together: a hidden top-level
 // window receives broadcasts (TaskbarCreated), timer ticks, registry-change
 // and media-change notifications, and reacts by (re)embedding, moving or
-// repainting the widget. Also decides when audio capture runs and drives the
-// visualiser frames.
+// repainting the widget. Also decides when audio capture runs, drives the
+// visualiser frames, and dispatches clicks to their actions.
 class Application {
 public:
-    explicit Application(HINSTANCE instance);
+    Application(HINSTANCE instance, std::filesystem::path dataDirectory);
     ~Application();
 
     Application(const Application&) = delete;
@@ -46,7 +49,10 @@ private:
     void syncWithTaskbar(bool force);
     void repaintWidget();
     void onMediaChanged();
+    void updateAccentFromCover();
     void onWidgetClick(POINT position);
+    void toggleColorMode();
+    void saveSettings();
 
     // Audio capture follows the Spotify session: started when it exists,
     // restarted when Spotify's root process changes, retried after failures.
@@ -55,6 +61,9 @@ private:
     void onSpectrumFrame();
 
     HINSTANCE m_instance{};
+    std::filesystem::path m_dataDirectory;
+    settings::Settings m_settings;
+
     win32::WindowClass m_messageClass;
     win32::unique_hwnd m_messageWindow;
     UINT m_taskbarCreatedMessage{};
@@ -67,6 +76,7 @@ private:
 
     std::unique_ptr<media::MediaSession> m_media;
     bool m_sessionAvailable{false};
+    shell::SpotifyWindowToggle m_spotifyWindow;
 
     audio::ProcessLoopbackCapture m_capture;
     ULONGLONG m_lastCaptureAttempt{};

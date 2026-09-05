@@ -9,6 +9,19 @@ add_executable(Threnody WIN32
     "src/audio/ProcessLoopbackCapture.cpp"
     "src/audio/SampleRing.h"
     "src/color/Color.h"
+    "src/color/ColorMode.h"
+    "src/color/ColorSpace.h"
+    "src/color/ColorSpace.cpp"
+    "src/color/DominantColor.h"
+    "src/color/DominantColor.cpp"
+    "src/render/CoverSampler.h"
+    "src/render/CoverSampler.cpp"
+    "src/settings/Settings.h"
+    "src/settings/Settings.cpp"
+    "src/shell/SpotifyLinks.h"
+    "src/shell/SpotifyLinks.cpp"
+    "src/shell/SpotifyWindow.h"
+    "src/shell/SpotifyWindow.cpp"
     "src/dsp/SpectrumAnalyzer.h"
     "src/dsp/SpectrumAnalyzer.cpp"
     "src/shell/SpotifyProcess.h"
@@ -65,9 +78,11 @@ target_compile_definitions(Threnody PRIVATE
 )
 
 find_package(kissfft CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 target_link_libraries(Threnody PRIVATE
     kissfft::kissfft-float
+    nlohmann_json::nlohmann_json
     d2d1 dwrite windowscodecs dcomp
     windowsapp
     mmdevapi

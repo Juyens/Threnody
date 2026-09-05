@@ -28,6 +28,9 @@ public:
     [[nodiscard]] Result<void> draw(LayeredSurface& surface, const WidgetModel& model, const WidgetLayout& layout,
                                     UINT dpi);
 
+    // Shared imaging factory, for callers that decode images for analysis.
+    [[nodiscard]] IWICImagingFactory& wic() const noexcept { return *m_graphics.wic; }
+
 private:
     struct TextLine {
         std::wstring text;

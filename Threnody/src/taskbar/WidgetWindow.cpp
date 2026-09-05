@@ -102,6 +102,21 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         case WM_ERASEBKGND:
             return 1;
 
+        case WM_MOUSEMOVE:
+            if (!m_hovering) {
+                m_hovering = true;
+                TRACKMOUSEEVENT track{.cbSize = sizeof(TRACKMOUSEEVENT), .dwFlags = TME_LEAVE, .hwndTrack = hwnd};
+                TrackMouseEvent(&track);
+                if (m_onHover) {
+                    m_onHover();
+                }
+            }
+            return 0;
+
+        case WM_MOUSELEAVE:
+            m_hovering = false;
+            return 0;
+
         case WM_LBUTTONUP:
             if (m_onClick) {
                 m_onClick(POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)});

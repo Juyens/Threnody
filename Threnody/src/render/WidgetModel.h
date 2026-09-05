@@ -2,6 +2,7 @@
 
 #include "Config.h"
 #include "color/Color.h"
+#include "color/ColorMode.h"
 
 #include <array>
 #include <cstdint>
@@ -25,7 +26,13 @@ struct WidgetModel {
 
     // Bar heights in [0, 1], bass to treble.
     std::array<float, config::spectrumBarCount> spectrum{};
+
+    // Track mode paints every bar with `accent` (extracted from the cover);
+    // rainbow mode sweeps the hue across the bars, offset by `rainbowPhase`
+    // in [0, 1) which advances every frame.
+    ColorMode colorMode{ColorMode::Track};
     Color accent{config::defaultAccentColor};
+    float rainbowPhase{};
 };
 
 }  // namespace threnody::render
