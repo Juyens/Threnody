@@ -135,6 +135,10 @@ inline constexpr wchar_t lockOverlayOffText[] = L"desactivado";
 // Settings window (Dear ImGui), client area in DIPs.
 inline constexpr int settingsWindowWidthDip = 460;
 inline constexpr int settingsWindowHeightDip = 740;
+inline constexpr int settingsLogPanelWidthDip = 640;  // Added to the right when the live log is shown.
+inline constexpr wchar_t settingsMonoFontFile[] = L"CascadiaMono.ttf";
+inline constexpr wchar_t settingsMonoFontFallback[] = L"consola.ttf";
+inline constexpr wchar_t settingsCjkFontFile[] = L"YuGothM.ttc";  // Merged into the log font for titles.
 
 // Spotify Web API (authorisation code with PKCE, no client secret). The
 // redirect URI must match the one registered in the Spotify app; the port is
@@ -151,5 +155,6 @@ inline constexpr wchar_t singleInstanceMutexName[] = L"Local\\Threnody.SingleIns
 inline constexpr wchar_t appDataFolderName[] = L"Threnody";
 inline constexpr wchar_t logFileName[] = L"threnody.log";
 inline constexpr std::size_t logMaxBytes = std::size_t{1} << 20;
+inline constexpr std::size_t logRecentLines = 2000;  // Kept in memory for the live viewer.
 
 }  // namespace threnody::config

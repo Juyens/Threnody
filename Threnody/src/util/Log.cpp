@@ -3,6 +3,7 @@
 #include "Config.h"
 
 #include <chrono>
+#include <deque>
 #include <fstream>
 #include <mutex>
 #include <system_error>
@@ -13,6 +14,9 @@ namespace {
 struct State {
     std::mutex mutex;
     std::ofstream file;
+    std::filesystem::path path;
+    std::deque<std::string> recent;
+    std::uint64_t revision{};
 };
 
 State& state() {
@@ -57,18 +61,42 @@ void init(const std::filesystem::path& file) {
     State& s = state();
     std::scoped_lock lock{s.mutex};
     rotateIfLarge(file);
+    s.path = file;
     s.file.open(file, std::ios::app | std::ios::binary);
+}
+
+std::filesystem::path file() {
+    State& s = state();
+    std::scoped_lock lock{s.mutex};
+    return s.path;
+}
+
+bool copyRecentIfChanged(std::uint64_t& revision, std::vector<std::string>& out) {
+    State& s = state();
+    std::scoped_lock lock{s.mutex};
+    if (revision == s.revision) {
+        return false;
+    }
+    revision = s.revision;
+    out.assign(s.recent.begin(), s.recent.end());
+    return true;
 }
 
 void write(Level level, std::string_view message) {
     State& s = state();
     std::scoped_lock lock{s.mutex};
+    std::string line = std::format("{} {} {}", timestamp(), levelName(level), message);
+    s.recent.push_back(line);
+    if (s.recent.size() > config::logRecentLines) {
+        s.recent.pop_front();
+    }
+    ++s.revision;
     if (!s.file.is_open()) {
         return;
     }
     // Flushed per line: the log is sparse, and a crash must not lose the
     // lines that explain it.
-    s.file << timestamp() << ' ' << levelName(level) << ' ' << message << std::endl;
+    s.file << line << std::endl;
 }
 
 void flush() {

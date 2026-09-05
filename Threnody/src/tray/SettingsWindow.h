@@ -10,8 +10,10 @@
 #include <winrt/base.h>
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 struct ImGuiContext;
 struct ImFont;
@@ -64,8 +66,14 @@ private:
     void applyStyle() const;
     void render();
     void drawContents();
+    void drawSettingsColumn();
+    void drawLogColumn();
     void sectionLabel(const char* text) const;
     void changed();
+
+    // Shows or hides the live log panel, widening the window to fit it.
+    void setLogVisible(bool visible);
+    void refreshLogLines();
 
     // Button actions may pump messages (ShellExecute does), which would let a
     // WM_TIMER re-enter render() inside an open ImGui frame. Actions are
@@ -87,6 +95,7 @@ private:
     ImFont* m_bodyFont{};
     ImFont* m_headingFont{};
     ImFont* m_smallFont{};
+    ImFont* m_monoFont{};
 
     settings::Settings m_settings;
     SpotifyStatus m_spotify;
@@ -94,6 +103,15 @@ private:
 
     bool m_rendering{false};
     std::function<void()> m_deferred;
+
+    bool m_logVisible{false};
+    bool m_logFollow{true};
+    std::uint64_t m_logRevision{};
+    std::vector<std::string> m_logLines;
+    std::vector<std::size_t> m_logFiltered;
+    std::array<char, 96> m_logFilter{};
+    std::string m_logFilterApplied;
+    bool m_logScrollPending{false};
 };
 
 }  // namespace threnody::tray

@@ -203,7 +203,12 @@ All seven phases implemented.
   closed; Vercel-like monochrome style, Segoe UI Variable loaded from
   `C:\Windows\Fonts`. Options: start with Windows (HKCU Run), lock-key
   overlay master and per key with a test button, visualiser colour mode,
-  Spotify connection. Opens itself once on first run (`setupShown`).
+  Spotify connection. Opens itself once on first run (`setupShown`). A
+  "Ver registro" button widens the window with a live view of the log (the
+  logger keeps the last 2000 lines in memory): filter, follow, open the file;
+  Cascadia Mono with Yu Gothic UI merged in for CJK titles. Button actions
+  are deferred to after the ImGui frame; never call anything that pumps
+  messages from inside it.
 - Spotify Web API: PKCE authorisation in the browser, loopback listener on
   127.0.0.1:38417 for the redirect (one shot, 5 minute timeout, state
   checked), token exchange/refresh over `Windows.Web.Http`, refresh token

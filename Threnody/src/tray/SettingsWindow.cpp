@@ -39,6 +39,26 @@ constexpr ImVec4 colorDisabled = rgb(92, 92, 92);
 constexpr ImVec4 colorPrimary = rgb(237, 237, 237);
 constexpr ImVec4 colorPrimaryHover = rgb(204, 204, 204);
 constexpr ImVec4 colorOnPrimary = rgb(10, 10, 10);
+constexpr ImVec4 colorLogError = rgb(248, 113, 113);
+constexpr ImVec4 colorLogWarn = rgb(250, 204, 21);
+
+// Window frame size for a client area of the given DIPs at `dpi`.
+SIZE frameSizeFor(int clientWidthDip, int clientHeightDip, UINT dpi, DWORD style) {
+    RECT frame{0, 0, threnody::win32::scaleDip(clientWidthDip, dpi), threnody::win32::scaleDip(clientHeightDip, dpi)};
+    AdjustWindowRectExForDpi(&frame, style, FALSE, 0, dpi);
+    return SIZE{threnody::win32::width(frame), threnody::win32::height(frame)};
+}
+
+constexpr DWORD settingsWindowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
+bool containsIgnoreCase(std::string_view text, std::string_view needle) {
+    if (needle.empty()) {
+        return true;
+    }
+    const auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+    return std::search(text.begin(), text.end(), needle.begin(), needle.end(),
+                       [&](char a, char b) { return lower(static_cast<unsigned char>(a)) == lower(static_cast<unsigned char>(b)); }) != text.end();
+}
 
 std::filesystem::path systemFont(const wchar_t* file) {
     std::array<wchar_t, MAX_PATH> windows{};
@@ -102,18 +122,15 @@ Result<void> SettingsWindow::open(const settings::Settings& current, HICON icon)
     RECT workArea{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
     m_dpi = GetDpiForSystem();
-    const int clientWidth = win32::scaleDip(config::settingsWindowWidthDip, m_dpi);
-    const int clientHeight = win32::scaleDip(config::settingsWindowHeightDip, m_dpi);
-    constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    RECT frame{0, 0, clientWidth, clientHeight};
-    AdjustWindowRectExForDpi(&frame, style, FALSE, 0, m_dpi);
-    const int width = win32::width(frame);
-    const int height = win32::height(frame);
+    m_logVisible = false;
+    const SIZE size = frameSizeFor(config::settingsWindowWidthDip, config::settingsWindowHeightDip, m_dpi, settingsWindowStyle);
+    const int width = size.cx;
+    const int height = size.cy;
     const int left = workArea.left + (win32::width(workArea) - width) / 2;
     const int top = workArea.top + (win32::height(workArea) - height) / 2;
 
-    m_hwnd.reset(CreateWindowExW(0, m_class.name(), L"Threnody", style, left, top, width, height, nullptr, nullptr,
-                                 m_instance, this));
+    m_hwnd.reset(CreateWindowExW(0, m_class.name(), L"Threnody", settingsWindowStyle, left, top, width, height, nullptr,
+                                 nullptr, m_instance, this));
     if (!m_hwnd) {
         return Error::fromLastError("CreateWindowEx(ThrenodySettings)");
     }
@@ -238,9 +255,27 @@ void SettingsWindow::setupImGui() {
     m_bodyFont = io.Fonts->AddFontFromFileTTF(fontFile.c_str(), std::round(15.0f * scale), nullptr, ranges);
     m_headingFont = io.Fonts->AddFontFromFileTTF(fontFile.c_str(), std::round(22.0f * scale), nullptr, ranges);
     m_smallFont = io.Fonts->AddFontFromFileTTF(fontFile.c_str(), std::round(12.0f * scale), nullptr, ranges);
+    const std::filesystem::path mono = systemFont(config::settingsMonoFontFile);
+    const std::filesystem::path monoFallback = systemFont(config::settingsMonoFontFallback);
+    const std::string monoFile = text::toUtf8(std::filesystem::exists(mono) ? mono.wstring() : monoFallback.wstring());
+    // The log shows track titles, often Japanese; the mono font has no CJK,
+    // so a CJK UI font is merged in as its fallback. No glyph ranges: ImGui
+    // 1.92 loads glyphs on demand.
+    m_monoFont = io.Fonts->AddFontFromFileTTF(monoFile.c_str(), std::round(12.5f * scale));
+    if (m_monoFont != nullptr) {
+        const std::filesystem::path cjk = systemFont(config::settingsCjkFontFile);
+        if (std::filesystem::exists(cjk)) {
+            ImFontConfig merge;
+            merge.MergeMode = true;
+            io.Fonts->AddFontFromFileTTF(text::toUtf8(cjk.wstring()).c_str(), std::round(12.5f * scale), &merge);
+        }
+    }
     if (m_bodyFont == nullptr) {
         m_bodyFont = io.Fonts->AddFontDefault();
         m_headingFont = m_smallFont = m_bodyFont;
+    }
+    if (m_monoFont == nullptr) {
+        m_monoFont = m_bodyFont;
     }
 
     ImGui_ImplWin32_Init(m_hwnd.get());
@@ -326,6 +361,26 @@ void SettingsWindow::drawContents() {
     ImGui::Begin("##settings", nullptr, flags);
     ImGui::PushFont(m_bodyFont);
 
+    if (m_logVisible) {
+        const float settingsWidth = static_cast<float>(win32::scaleDip(config::settingsWindowWidthDip, m_dpi)) -
+                                    ImGui::GetStyle().WindowPadding.x;
+        ImGui::BeginChild("##settings-column", ImVec2{settingsWidth, 0.0f}, ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoScrollbar);
+        drawSettingsColumn();
+        ImGui::EndChild();
+        ImGui::SameLine();
+        ImGui::BeginChild("##log-column", ImVec2{0.0f, 0.0f});
+        drawLogColumn();
+        ImGui::EndChild();
+    } else {
+        drawSettingsColumn();
+    }
+
+    ImGui::PopFont();
+    ImGui::End();
+}
+
+void SettingsWindow::drawSettingsColumn() {
     ImGui::PushFont(m_headingFont);
     ImGui::TextUnformatted("Threnody");
     ImGui::PopFont();
@@ -442,6 +497,10 @@ void SettingsWindow::drawContents() {
         defer(m_actions.onQuit);
     }
     ImGui::SameLine();
+    if (secondaryButton(m_logVisible ? "Ocultar registro" : "Ver registro")) {
+        defer([this] { setLogVisible(!m_logVisible); });
+    }
+    ImGui::SameLine();
     ImGui::PushFont(m_smallFont);
     ImGui::PushStyleColor(ImGuiCol_Text, colorDisabled);
     const char* version = "Threnody, compilación de desarrollo";
@@ -450,9 +509,113 @@ void SettingsWindow::drawContents() {
     ImGui::TextUnformatted(version);
     ImGui::PopStyleColor();
     ImGui::PopFont();
+}
 
+// Live view of the log: what the file gets, as it gets it. Filter is a
+// case-insensitive substring; "Seguir" keeps the newest line in view.
+void SettingsWindow::drawLogColumn() {
+    ImGui::PushStyleColor(ImGuiCol_Border, colorBorder);
+    ImGui::Dummy(ImVec2{0, 6});
+    sectionLabel("REGISTRO EN VIVO");
+
+    refreshLogLines();
+
+    ImGui::SetNextItemWidth(220.0f * static_cast<float>(m_dpi) / 96.0f);
+    ImGui::InputTextWithHint("##logfilter", "Filtrar", m_logFilter.data(), m_logFilter.size());
+    ImGui::SameLine();
+    ImGui::Checkbox("Seguir", &m_logFollow);
+    ImGui::SameLine();
+    if (secondaryButton("Abrir archivo")) {
+        defer([] {
+            const std::filesystem::path file = log::file();
+            if (!file.empty()) {
+                ShellExecuteW(nullptr, L"open", file.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            }
+        });
+    }
+    ImGui::SameLine();
+    ImGui::PushFont(m_smallFont);
+    ImGui::PushStyleColor(ImGuiCol_Text, colorMuted);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) / 2.0f);
+    ImGui::Text("%zu líneas", m_logFiltered.size());
+    ImGui::PopStyleColor();
     ImGui::PopFont();
-    ImGui::End();
+
+    // Refilter when the filter text changed.
+    if (m_logFilterApplied != m_logFilter.data()) {
+        m_logFilterApplied = m_logFilter.data();
+        m_logFiltered.clear();
+        for (std::size_t i = 0; i < m_logLines.size(); ++i) {
+            if (containsIgnoreCase(m_logLines[i], m_logFilterApplied)) {
+                m_logFiltered.push_back(i);
+            }
+        }
+        m_logScrollPending = true;
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, colorSurface);
+    ImGui::BeginChild("##loglines", ImVec2{0, 0}, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::PushFont(m_monoFont);
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(m_logFiltered.size()));
+    while (clipper.Step()) {
+        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+            const std::string& line = m_logLines[m_logFiltered[static_cast<std::size_t>(row)]];
+            ImVec4 colour = colorText;
+            if (line.find(" ERROR ") != std::string::npos) {
+                colour = colorLogError;
+            } else if (line.find(" WARN ") != std::string::npos) {
+                colour = colorLogWarn;
+            } else {
+                colour = colorMuted;
+            }
+            ImGui::PushStyleColor(ImGuiCol_Text, colour);
+            ImGui::TextUnformatted(line.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+    clipper.End();
+    if (m_logScrollPending && m_logFollow) {
+        ImGui::SetScrollHereY(1.0f);
+    }
+    m_logScrollPending = false;
+    ImGui::PopFont();
+    ImGui::EndChild();
+    ImGui::PopStyleColor(2);
+}
+
+void SettingsWindow::refreshLogLines() {
+    if (!log::copyRecentIfChanged(m_logRevision, m_logLines)) {
+        return;
+    }
+    m_logFiltered.clear();
+    for (std::size_t i = 0; i < m_logLines.size(); ++i) {
+        if (containsIgnoreCase(m_logLines[i], m_logFilterApplied)) {
+            m_logFiltered.push_back(i);
+        }
+    }
+    m_logScrollPending = true;
+}
+
+void SettingsWindow::setLogVisible(bool visible) {
+    if (visible == m_logVisible || !m_hwnd) {
+        return;
+    }
+    m_logVisible = visible;
+    const int widthDip = config::settingsWindowWidthDip + (visible ? config::settingsLogPanelWidthDip : 0);
+    const SIZE size = frameSizeFor(widthDip, config::settingsWindowHeightDip, m_dpi, settingsWindowStyle);
+
+    // Keep the window on screen when it grows: slide left if needed.
+    RECT current{};
+    GetWindowRect(m_hwnd.get(), &current);
+    RECT workArea{};
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+    int left = current.left;
+    if (left + size.cx > workArea.right) {
+        left = std::max<LONG>(workArea.left, workArea.right - size.cx);
+    }
+    SetWindowPos(m_hwnd.get(), nullptr, left, current.top, size.cx, size.cy, SWP_NOZORDER | SWP_NOACTIVATE);
+    m_logScrollPending = true;
 }
 
 void SettingsWindow::render() {
