@@ -44,20 +44,26 @@ inline constexpr float spectrumAttack = 0.65f;
 inline constexpr float spectrumRelease = 0.86f;
 inline constexpr unsigned spectrumFrameMs = 33;  // ~30 fps
 
-// Rainbow colour mode: how much of the hue circle the thirteen bars span at
-// once, how fast the gradient travels (full cycle in this many seconds), and
-// the saturation/value of the bars.
-inline constexpr float rainbowHueSpan = 0.75f;
-inline constexpr float rainbowCycleSeconds = 6.0f;
-inline constexpr float rainbowSaturation = 0.80f;
-inline constexpr float rainbowValue = 1.0f;
+// Rainbow colour mode, in OKLCH so every bar looks equally bright: how much
+// of the hue circle (degrees) the thirteen bars span at once, how fast the
+// sweep travels (full cycle in this many seconds), and the shared lightness
+// and chroma. Chroma is kept moderate: pure hues on a dark taskbar glare.
+inline constexpr float rainbowHueSpanDegrees = 300.0f;
+inline constexpr float rainbowCycleSeconds = 8.0f;
+inline constexpr float rainbowLightness = 0.80f;
+inline constexpr float rainbowChroma = 0.12f;
 
-// Track-gradient colour mode: how far hue (fraction of the circle) and
-// lightness ripple around the cover colour, and how many ripple cycles span
-// the bars. The ripple travels at the rainbow's speed.
-inline constexpr float gradientHueSpread = 0.07f;
-inline constexpr float gradientLightnessSpread = 0.14f;
-inline constexpr float gradientWaveSpan = 1.0f;
+// Track-gradient colour mode: one wave travels along the bars at the
+// rainbow's speed. At its crest the colour is a lighter, softer tint of the
+// cover colour with the hue turned one way; at its trough a deeper shade with
+// the hue turned the other way. Everything stays within analogous hues, so
+// the bars read as one colour with depth rather than as several colours.
+inline constexpr float gradientHueSpreadDegrees = 22.0f;
+inline constexpr float gradientLightnessSpread = 0.09f;
+inline constexpr float gradientChromaFade = 0.35f;  // Chroma lost at the light crest.
+inline constexpr float gradientMinLightness = 0.55f;
+inline constexpr float gradientMaxLightness = 0.92f;
+inline constexpr float gradientWaveSpan = 1.0f;  // Wave cycles across the thirteen bars.
 
 // Cover colour analysis works on a downscaled copy of this many pixels a side.
 inline constexpr unsigned coverSampleSize = 48;

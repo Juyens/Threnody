@@ -2,6 +2,7 @@
 // session or a screen. Plain functions and a counter; no framework.
 
 #include "Config.h"
+#include "color/ColorSpace.h"
 #include "color/DominantColor.h"
 #include "dsp/SpectrumAnalyzer.h"
 #include "media/SourceAppId.h"
@@ -81,6 +82,28 @@ void testDominantColor() {
     std::fill(pixels.begin(), pixels.end(), 0xFF303030u);
     const Color fallback = dominantColor(pixels, Color{0, 0, 1, 1});
     check(fallback.b == 1.0f && fallback.r == 0.0f, "grey cover falls back");
+}
+
+void testOklch() {
+    using threnody::Color;
+    using threnody::color::fromOklch;
+    using threnody::color::toOklch;
+    const Color sky{0.35f, 0.63f, 0.90f, 1.0f};
+    const auto lch = toOklch(sky);
+    const Color back = fromOklch(lch);
+    const auto close = [](float a, float b) { return std::abs(a - b) < 0.004f; };
+    check(close(back.r, sky.r) && close(back.g, sky.g) && close(back.b, sky.b), "OKLCH round-trips");
+    check(lch.h > 220.0f && lch.h < 270.0f, "sky blue lands on the blue hue");
+
+    const auto white = toOklch(Color{1.0f, 1.0f, 1.0f, 1.0f});
+    check(white.l > 0.99f && white.c < 0.01f, "white is achromatic at L=1");
+
+    // Chroma beyond what sRGB can show comes back inside the gamut with the
+    // hue kept, rather than clipped into a different colour.
+    const Color loud = fromOklch({0.80f, 0.40f, 145.0f});
+    const auto loudLch = toOklch(loud);
+    check(loud.r >= 0.0f && loud.g <= 1.0f && std::abs(loudLch.h - 145.0f) < 3.0f, "out-of-gamut keeps its hue");
+    check(std::abs(loudLch.l - 0.80f) < 0.02f, "out-of-gamut keeps its lightness");
 }
 
 void testSpectrum() {
@@ -185,6 +208,7 @@ int main() {
     testPkce();
     testPercentEncode();
     testDominantColor();
+    testOklch();
     testSpectrum();
     testLayout();
     testSettingsRoundTrip();

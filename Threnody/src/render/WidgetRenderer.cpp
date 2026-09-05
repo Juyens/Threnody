@@ -451,17 +451,18 @@ void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel&
     float x = zone.left;
     for (int i = 0; i < spectrumBarCount; ++i) {
         if (model.colorMode == ColorMode::Rainbow) {
-            const float hue = model.rainbowPhase + static_cast<float>(i) * rainbowHueSpan / spectrumBarCount;
-            fill(color::fromHsv(hue, rainbowSaturation, rainbowValue));
+            const float hue =
+                360.0f * model.rainbowPhase + static_cast<float>(i) * rainbowHueSpanDegrees / spectrumBarCount;
+            fill(color::fromOklch({rainbowLightness, rainbowChroma, hue}));
         } else if (model.colorMode == ColorMode::TrackGradient) {
-            // A sine ripple around the track colour: hue leads, lightness
-            // trails by a quarter turn so the two never peak together.
             const float t = 2.0f * std::numbers::pi_v<float> *
                             (model.rainbowPhase + static_cast<float>(i) * gradientWaveSpan / spectrumBarCount);
-            color::Hsl hsl = color::toHsl(model.accent);
-            hsl.h += gradientHueSpread * std::sin(t);
-            hsl.l = std::clamp(hsl.l + gradientLightnessSpread * std::cos(t), 0.2f, 0.9f);
-            fill(color::fromHsl(hsl));
+            const float wave = std::cos(t);  // +1 crest (light tint), -1 trough (deep shade).
+            color::Oklch lch = color::toOklch(model.accent);
+            lch.l = std::clamp(lch.l + gradientLightnessSpread * wave, gradientMinLightness, gradientMaxLightness);
+            lch.c *= 1.0f - gradientChromaFade * std::max(wave, 0.0f);
+            lch.h += gradientHueSpreadDegrees * wave;
+            fill(color::fromOklch(lch));
         }
         const float value = std::clamp(model.spectrum[static_cast<std::size_t>(i)], 0.0f, 1.0f);
         const float height = spectrumBaselineDip + value * (maxHeight - spectrumBaselineDip);
