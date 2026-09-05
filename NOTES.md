@@ -195,7 +195,9 @@ All seven phases implemented.
 - Clicks: background/cover toggle the Spotify window; title and artist open
   exact `spotify:track:`/`spotify:artist:` URIs when the Web API is connected
   and the API's track name matches the SMTC title, otherwise
-  `spotify:search:`; the visualiser toggles track/rainbow colour.
+  `spotify:search:`; the visualiser cycles three colour modes: track colour,
+  rainbow, and a gradient that ripples hue and lightness around the track
+  colour and travels across the bars.
 - Lock-key overlay (see the phase 6 notes above).
 - Tray icon drawn at runtime (three bars), left click opens settings, right
   click offers settings and quit. Settings window: Win32 + D3D11 + Dear ImGui

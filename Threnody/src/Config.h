@@ -52,6 +52,13 @@ inline constexpr float rainbowCycleSeconds = 6.0f;
 inline constexpr float rainbowSaturation = 0.80f;
 inline constexpr float rainbowValue = 1.0f;
 
+// Track-gradient colour mode: how far hue (fraction of the circle) and
+// lightness ripple around the cover colour, and how many ripple cycles span
+// the bars. The ripple travels at the rainbow's speed.
+inline constexpr float gradientHueSpread = 0.07f;
+inline constexpr float gradientLightnessSpread = 0.14f;
+inline constexpr float gradientWaveSpan = 1.0f;
+
 // Cover colour analysis works on a downscaled copy of this many pixels a side.
 inline constexpr unsigned coverSampleSize = 48;
 

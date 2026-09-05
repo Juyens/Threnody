@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 namespace threnody::render {
 namespace {
@@ -452,6 +453,15 @@ void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel&
         if (model.colorMode == ColorMode::Rainbow) {
             const float hue = model.rainbowPhase + static_cast<float>(i) * rainbowHueSpan / spectrumBarCount;
             fill(color::fromHsv(hue, rainbowSaturation, rainbowValue));
+        } else if (model.colorMode == ColorMode::TrackGradient) {
+            // A sine ripple around the track colour: hue leads, lightness
+            // trails by a quarter turn so the two never peak together.
+            const float t = 2.0f * std::numbers::pi_v<float> *
+                            (model.rainbowPhase + static_cast<float>(i) * gradientWaveSpan / spectrumBarCount);
+            color::Hsl hsl = color::toHsl(model.accent);
+            hsl.h += gradientHueSpread * std::sin(t);
+            hsl.l = std::clamp(hsl.l + gradientLightnessSpread * std::cos(t), 0.2f, 0.9f);
+            fill(color::fromHsl(hsl));
         }
         const float value = std::clamp(model.spectrum[static_cast<std::size_t>(i)], 0.0f, 1.0f);
         const float height = spectrumBaselineDip + value * (maxHeight - spectrumBaselineDip);

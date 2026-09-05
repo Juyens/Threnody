@@ -11,12 +11,14 @@ namespace {
 
 using nlohmann::json;
 
-constexpr const char* colorModeName(ColorMode mode) noexcept {
-    return mode == ColorMode::Rainbow ? "rainbow" : "track";
-}
-
 ColorMode colorModeFromName(const std::string& name) noexcept {
-    return name == "rainbow" ? ColorMode::Rainbow : ColorMode::Track;
+    if (name == "rainbow") {
+        return ColorMode::Rainbow;
+    }
+    if (name == "gradient") {
+        return ColorMode::TrackGradient;
+    }
+    return ColorMode::Track;
 }
 
 json toJson(const Settings& s) {

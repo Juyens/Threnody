@@ -567,9 +567,9 @@ void Application::onHoverFrame() {
 }
 
 void Application::toggleColorMode() {
-    m_settings.colorMode = m_settings.colorMode == ColorMode::Track ? ColorMode::Rainbow : ColorMode::Track;
+    m_settings.colorMode = nextColorMode(m_settings.colorMode);
     m_model.colorMode = m_settings.colorMode;
-    log::info("colour mode: {}", m_model.colorMode == ColorMode::Rainbow ? "rainbow" : "track");
+    log::info("colour mode: {}", colorModeName(m_model.colorMode));
     saveSettings();
     if (m_settingsWindow) {
         m_settingsWindow->setSettings(m_settings);
@@ -616,7 +616,7 @@ void Application::applySettings(const settings::Settings& updated) {
 
     if (previous.colorMode != updated.colorMode) {
         m_model.colorMode = updated.colorMode;
-        log::info("colour mode: {}", m_model.colorMode == ColorMode::Rainbow ? "rainbow" : "track");
+        log::info("colour mode: {}", colorModeName(m_model.colorMode));
         repaintWidget();
     }
     if (previous.startWithWindows != updated.startWithWindows) {
@@ -898,7 +898,7 @@ void Application::onSpectrumFrame() {
     }
     m_model.spectrum = m_analyzer.bands();
 
-    if (m_model.colorMode == ColorMode::Rainbow) {
+    if (m_model.colorMode != ColorMode::Track) {
         const float step = static_cast<float>(config::spectrumFrameMs) / (1000.0f * config::rainbowCycleSeconds);
         m_model.rainbowPhase = std::fmod(m_model.rainbowPhase + step, 1.0f);
     }

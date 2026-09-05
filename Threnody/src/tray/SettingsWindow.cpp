@@ -422,14 +422,19 @@ void SettingsWindow::drawSettingsColumn() {
     ImGui::Dummy(ImVec2{0, 2});
 
     sectionLabel("VISUALIZADOR");
-    int mode = m_settings.colorMode == ColorMode::Rainbow ? 1 : 0;
-    if (ImGui::RadioButton("Color de la canción", &mode, 0)) {
+    int mode = static_cast<int>(m_settings.colorMode);
+    if (ImGui::RadioButton("Color de la canción", &mode, static_cast<int>(ColorMode::Track))) {
         m_settings.colorMode = ColorMode::Track;
         changed();
     }
     ImGui::SameLine(0, 24);
-    if (ImGui::RadioButton("Arcoíris", &mode, 1)) {
+    if (ImGui::RadioButton("Arcoíris", &mode, static_cast<int>(ColorMode::Rainbow))) {
         m_settings.colorMode = ColorMode::Rainbow;
+        changed();
+    }
+    ImGui::SameLine(0, 24);
+    if (ImGui::RadioButton("Degradado de la canción", &mode, static_cast<int>(ColorMode::TrackGradient))) {
+        m_settings.colorMode = ColorMode::TrackGradient;
         changed();
     }
     ImGui::Dummy(ImVec2{0, 2});
