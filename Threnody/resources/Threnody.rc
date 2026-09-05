@@ -1,0 +1,45 @@
+#include "Resource.h"
+
+#include <winres.h>
+
+// THRENODY_VERSION_* come from the build, so the file version shown by
+// Explorer follows the CMake project version.
+#define THRENODY_STR2(x) #x
+#define THRENODY_STR(x) THRENODY_STR2(x)
+#define THRENODY_VERSION_STRING \
+    THRENODY_STR(THRENODY_VERSION_MAJOR) "." THRENODY_STR(THRENODY_VERSION_MINOR) "." THRENODY_STR(THRENODY_VERSION_PATCH)
+
+IDI_THRENODY ICON "Threnody.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION THRENODY_VERSION_MAJOR, THRENODY_VERSION_MINOR, THRENODY_VERSION_PATCH, 0
+PRODUCTVERSION THRENODY_VERSION_MAJOR, THRENODY_VERSION_MINOR, THRENODY_VERSION_PATCH, 0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+FILEFLAGS VS_FF_DEBUG
+#else
+FILEFLAGS 0
+#endif
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Juyens"
+            VALUE "FileDescription", "Threnody"
+            VALUE "FileVersion", THRENODY_VERSION_STRING
+            VALUE "InternalName", "Threnody"
+            VALUE "LegalCopyright", "Juyens"
+            VALUE "OriginalFilename", "Threnody.exe"
+            VALUE "ProductName", "Threnody"
+            VALUE "ProductVersion", THRENODY_VERSION_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

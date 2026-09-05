@@ -29,8 +29,8 @@ add_executable(Threnody WIN32
     "src/spotify/SpotifyClient.cpp"
     "src/util/Dpapi.h"
     "src/util/Dpapi.cpp"
-    "src/render/IconFactory.h"
-    "src/render/IconFactory.cpp"
+    "resources/Resource.h"
+    "resources/Threnody.rc"
     "src/shell/Startup.h"
     "src/shell/Startup.cpp"
     "src/tray/SettingsWindow.h"
@@ -89,7 +89,7 @@ add_executable(Threnody WIN32
     "src/util/Win32.cpp"
 )
 
-target_include_directories(Threnody PRIVATE "src")
+target_include_directories(Threnody PRIVATE "src" "resources")
 
 target_compile_features(Threnody PRIVATE cxx_std_20)
 target_compile_options(Threnody PRIVATE
@@ -102,6 +102,9 @@ target_compile_definitions(Threnody PRIVATE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
     THRENODY_VERSION="${PROJECT_VERSION}"
+    THRENODY_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    THRENODY_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    THRENODY_VERSION_PATCH=${PROJECT_VERSION_PATCH}
 )
 
 find_package(kissfft CONFIG REQUIRED)

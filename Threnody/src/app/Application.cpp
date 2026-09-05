@@ -3,12 +3,13 @@
 #include "Config.h"
 #include "color/DominantColor.h"
 #include "render/CoverSampler.h"
-#include "render/IconFactory.h"
 #include "shell/Fullscreen.h"
 #include "shell/SpotifyLinks.h"
 #include "shell/SpotifyProcess.h"
 #include "shell/Startup.h"
 #include "util/Dpapi.h"
+
+#include "Resource.h"
 
 #include <windowsx.h>
 
@@ -124,19 +125,19 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
         }
     }
 
-    if (m_renderer) {
+    // The icon lives in the executable's resources so Explorer shows it too;
+    // LoadImage picks the frame nearest each requested size.
+    {
         const UINT dpi = GetDpiForSystem();
-        if (Result<win32::unique_hicon> icon =
-                render::renderAppIcon(m_renderer->graphics(), GetSystemMetricsForDpi(SM_CXSMICON, dpi));
-            icon) {
-            m_trayIconImage = std::move(icon.value());
-        } else {
-            log::warn("tray icon image unavailable: {}", icon.error().describe());
-        }
-        if (Result<win32::unique_hicon> icon =
-                render::renderAppIcon(m_renderer->graphics(), GetSystemMetricsForDpi(SM_CXICON, dpi));
-            icon) {
-            m_appIconImage = std::move(icon.value());
+        const auto load = [&](int metric) {
+            const int size = GetSystemMetricsForDpi(metric, dpi);
+            return win32::unique_hicon{static_cast<HICON>(
+                LoadImageW(instance, MAKEINTRESOURCEW(IDI_THRENODY), IMAGE_ICON, size, size, LR_DEFAULTCOLOR))};
+        };
+        m_trayIconImage = load(SM_CXSMICON);
+        m_appIconImage = load(SM_CXICON);
+        if (!m_trayIconImage || !m_appIconImage) {
+            log::warn("application icon resource unavailable: {}", Error::fromLastError("LoadImage").describe());
         }
     }
     m_tray = std::make_unique<tray::TrayIcon>(messageWindow, WM_THRENODY_TRAY, m_trayIconImage.get(), L"Threnody");
