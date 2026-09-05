@@ -138,10 +138,95 @@ Result<WidgetLayout> WidgetRenderer::layout(const WidgetModel& model, float heig
 }
 
 void WidgetRenderer::releaseDeviceResources() noexcept {
+    m_cover.reset();  // Bitmaps belong to the target.
     m_brush = nullptr;
     m_target = nullptr;
     m_boundDc = nullptr;
     m_boundSize = {};
+}
+
+// Decodes the model's cover with WIC, scales it so the shorter side matches
+// the cover square, and uploads it as a Direct2D bitmap. Cached by version
+// and size, so this runs once per track.
+Result<void> WidgetRenderer::ensureCover(const WidgetModel& model, const RectF& zone) {
+    if (model.coverImage.empty()) {
+        m_cover.reset();
+        return {};
+    }
+    const int sizePx = std::max(1, static_cast<int>(std::lround(zone.width() * static_cast<float>(m_dpi) / 96.0f)));
+    if (m_cover && m_cover->version == model.coverVersion && m_cover->sizePx == sizePx) {
+        return {};
+    }
+    m_cover.reset();
+
+    IWICImagingFactory& wic = *m_graphics.wic;
+    winrt::com_ptr<IWICStream> stream;
+    HRESULT hr = wic.CreateStream(stream.put());
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "IWICImagingFactory::CreateStream");
+    }
+    // WIC wants a mutable pointer but only reads through it.
+    hr = stream->InitializeFromMemory(const_cast<BYTE*>(model.coverImage.data()),
+                                      static_cast<DWORD>(model.coverImage.size()));
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "IWICStream::InitializeFromMemory");
+    }
+
+    winrt::com_ptr<IWICBitmapDecoder> decoder;
+    hr = wic.CreateDecoderFromStream(stream.get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.put());
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "CreateDecoderFromStream(cover)");
+    }
+    winrt::com_ptr<IWICBitmapFrameDecode> frame;
+    hr = decoder->GetFrame(0, frame.put());
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "IWICBitmapDecoder::GetFrame");
+    }
+
+    UINT width = 0;
+    UINT height = 0;
+    frame->GetSize(&width, &height);
+    if (width == 0 || height == 0) {
+        return Error::fromHResult(E_UNEXPECTED, "cover has no pixels");
+    }
+    const double scale = static_cast<double>(sizePx) / static_cast<double>(std::min(width, height));
+    const UINT scaledWidth = std::max<UINT>(1, static_cast<UINT>(std::lround(width * scale)));
+    const UINT scaledHeight = std::max<UINT>(1, static_cast<UINT>(std::lround(height * scale)));
+
+    winrt::com_ptr<IWICBitmapScaler> scaler;
+    hr = wic.CreateBitmapScaler(scaler.put());
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "CreateBitmapScaler");
+    }
+    hr = scaler->Initialize(frame.get(), scaledWidth, scaledHeight, WICBitmapInterpolationModeHighQualityCubic);
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "IWICBitmapScaler::Initialize");
+    }
+
+    winrt::com_ptr<IWICFormatConverter> converter;
+    hr = wic.CreateFormatConverter(converter.put());
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "CreateFormatConverter");
+    }
+    hr = converter->Initialize(scaler.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                               WICBitmapPaletteTypeMedianCut);
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "IWICFormatConverter::Initialize");
+    }
+
+    Cover cover{.version = model.coverVersion, .sizePx = sizePx};
+    hr = m_target->CreateBitmapFromWicBitmap(converter.get(), nullptr, cover.bitmap.put());
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "CreateBitmapFromWicBitmap(cover)");
+    }
+
+    // Centre-crop to a square, in DIPs of the bitmap's own DPI (96).
+    const float side = static_cast<float>(sizePx);
+    const float left = (static_cast<float>(scaledWidth) - side) / 2.0f;
+    const float top = (static_cast<float>(scaledHeight) - side) / 2.0f;
+    cover.source = {left, top, left + side, top + side};
+    m_cover = std::move(cover);
+    return {};
 }
 
 Result<void> WidgetRenderer::ensureTarget(const LayeredSurface& surface, UINT dpi) {
@@ -236,14 +321,40 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout) {
     m_target->DrawRoundedRectangle(border, m_brush.get(), 1.0f);
 }
 
-void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& /*model*/) {
+void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& model) {
     const D2D1_ROUNDED_RECT shape{
         .rect = toD2D(layout.cover),
         .radiusX = config::coverCornerRadiusDip,
         .radiusY = config::coverCornerRadiusDip,
     };
-    fill(config::coverPlaceholderColor);
-    m_target->FillRoundedRectangle(shape, m_brush.get());
+
+    if (const Result<void> ready = ensureCover(model, layout.cover); !ready) {
+        // Drawing continues without the image; the placeholder stands in.
+        // Logged by the caller through the frame result would be noisy per
+        // frame, so failures simply fall back here.
+        m_cover.reset();
+    }
+
+    if (!m_cover) {
+        fill(config::coverPlaceholderColor);
+        m_target->FillRoundedRectangle(shape, m_brush.get());
+        return;
+    }
+
+    winrt::com_ptr<ID2D1RoundedRectangleGeometry> clip;
+    if (FAILED(m_graphics.d2d->CreateRoundedRectangleGeometry(shape, clip.put()))) {
+        m_target->DrawBitmap(m_cover->bitmap.get(), shape.rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                             m_cover->source);
+        return;
+    }
+
+    D2D1_LAYER_PARAMETERS layer = D2D1::LayerParameters();
+    layer.geometricMask = clip.get();
+    layer.maskAntialiasMode = D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
+    m_target->PushLayer(layer, nullptr);
+    m_target->DrawBitmap(m_cover->bitmap.get(), shape.rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+                         m_cover->source);
+    m_target->PopLayer();
 }
 
 void WidgetRenderer::drawText(const WidgetLayout& layout) {

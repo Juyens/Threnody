@@ -2,6 +2,8 @@
 
 #include "util/Log.h"
 
+#include <windowsx.h>
+
 namespace threnody::taskbar {
 namespace {
 
@@ -99,6 +101,12 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 
         case WM_ERASEBKGND:
             return 1;
+
+        case WM_LBUTTONUP:
+            if (m_onClick) {
+                m_onClick(POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)});
+            }
+            return 0;
 
         case WM_NCDESTROY:
             // Either we destroyed it, or the taskbar took it down with itself.

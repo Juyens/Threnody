@@ -123,6 +123,11 @@ also broadcasts a change notification. Writing the value with
 `Set-ItemProperty` is still a valid test of the registry watcher, but the icons
 will not move until explorer is poked or restarted.
 
+**Spotify reports playback state late.** `TryTogglePlayPauseAsync` returns
+`true` immediately and the audio reacts at once, but `PlaybackInfoChanged`
+arrives up to ten seconds later. The play/pause glyph is flipped optimistically
+on click and the event only confirms it.
+
 **The taskbar gets rebuilt.** After a session unlock or an explorer restart,
 an embedded window can be orphaned and UI Automation queries against the
 taskbar can hang rather than fail. Anything that waits on such a query needs
@@ -137,16 +142,19 @@ an expiry, or the widget stays broken until the process restarts.
 
 ## State
 
-Phases 1 and 2 done.
+Phases 1 to 3 done.
 
 - Message loop, single-instance mutex, file log with exit cause.
 - Taskbar layout query (`TaskbarAl`, `TrayNotifyWnd`), registry watcher for
   live alignment changes, re-embedding after an explorer restart.
 - Per-pixel layered child window fed by a Direct2D DC render target bound to a
-  32-bit premultiplied DIB. Grayscale text antialiasing (ClearType needs an
-  opaque backdrop). DirectWrite fallback chain routes CJK to Yu Gothic UI /
-  Microsoft YaHei UI / Malgun Gothic ahead of the system fallback.
+  32-bit premultiplied DIB. Grayscale text antialiasing. DirectWrite fallback
+  chain routes CJK to Yu Gothic UI / Microsoft YaHei UI / Malgun Gothic.
+- SMTC through C++/WinRT: Spotify session picked by the AUMID rule, title,
+  artist, cover (decoded and centre-cropped with WIC), play state, and the
+  three transport commands from clicks. Events are bounced to the UI thread
+  with a posted message; the UI thread pulls a snapshot.
 - Widget width follows the measured text, capped; layout zones are plain
-  arithmetic in `render/WidgetLayout` so hit-testing can reuse them.
+  arithmetic in `render/WidgetLayout`, reused by `interaction/HitTest`.
 
-Next: phase 3, SMTC metadata, cover art and transport commands.
+Next: phase 4, WASAPI process loopback and the FFT bars.

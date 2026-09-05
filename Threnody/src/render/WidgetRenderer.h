@@ -7,14 +7,16 @@
 #include "render/WidgetModel.h"
 #include "util/Result.h"
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace threnody::render {
 
 // Draws the widget with Direct2D into a LayeredSurface through a DC render
-// target. Device resources are created once and reused; text layouts are
-// cached until the text or its available width changes.
+// target. Device resources are created once and reused; text layouts and the
+// decoded cover are cached until their inputs change.
 class WidgetRenderer {
 public:
     [[nodiscard]] static Result<std::unique_ptr<WidgetRenderer>> create();
@@ -34,10 +36,20 @@ private:
         DWRITE_TEXT_METRICS metrics{};
     };
 
+    // Decoded cover, scaled so its shorter side matches the cover square in
+    // pixels; `source` is the centred square to draw from.
+    struct Cover {
+        std::uint32_t version{};
+        int sizePx{};
+        winrt::com_ptr<ID2D1Bitmap> bitmap;
+        D2D1_RECT_F source{};
+    };
+
     WidgetRenderer(Graphics graphics, Fonts fonts);
 
     [[nodiscard]] Result<void> ensureTarget(const LayeredSurface& surface, UINT dpi);
     [[nodiscard]] Result<void> ensureGlyphs();
+    [[nodiscard]] Result<void> ensureCover(const WidgetModel& model, const RectF& zone);
     [[nodiscard]] Result<void> updateTextLine(TextLine& line, const std::wstring& text, float maxWidth,
                                               IDWriteTextFormat& format);
     void releaseDeviceResources() noexcept;
@@ -65,6 +77,7 @@ private:
 
     TextLine m_title;
     TextLine m_artist;
+    std::optional<Cover> m_cover;
 };
 
 }  // namespace threnody::render

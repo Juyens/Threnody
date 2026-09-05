@@ -5,6 +5,8 @@
 
 #include <Windows.h>
 
+#include <functional>
+
 namespace threnody::taskbar {
 
 // The widget's HWND, living as a per-pixel layered WS_CHILD of Shell_TrayWnd.
@@ -16,6 +18,9 @@ namespace threnody::taskbar {
 // it is still attached.
 class WidgetWindow {
 public:
+    // Client-area position in physical pixels.
+    using ClickHandler = std::function<void(POINT position)>;
+
     explicit WidgetWindow(HINSTANCE instance);
     ~WidgetWindow();
 
@@ -30,6 +35,8 @@ public:
     void move(const RECT& rect) const noexcept;
     void show() const noexcept;
 
+    void onClick(ClickHandler handler) { m_onClick = std::move(handler); }
+
     [[nodiscard]] HWND hwnd() const noexcept { return m_hwnd.get(); }
 
 private:
@@ -39,6 +46,7 @@ private:
     HINSTANCE m_instance{};
     win32::WindowClass m_class;
     win32::unique_hwnd m_hwnd;
+    ClickHandler m_onClick;
 };
 
 }  // namespace threnody::taskbar

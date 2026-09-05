@@ -2,6 +2,7 @@
 
 #include "Config.h"
 #include "util/Log.h"
+#include "util/Text.h"
 
 #include <cmath>
 
@@ -12,6 +13,7 @@ constexpr wchar_t messageClassName[] = L"ThrenodyMessageWindow";
 
 constexpr UINT_PTR healthTimerId = 1;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
+constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 
 constexpr const char* alignmentName(taskbar::Alignment alignment) noexcept {
     return alignment == taskbar::Alignment::Left ? "left" : "center";
@@ -44,6 +46,7 @@ Application::Application(HINSTANCE instance)
         log::error("{}", Error::fromLastError("CreateWindowEx(ThrenodyMessageWindow)").describe());
         return;
     }
+    const HWND messageWindow = m_messageWindow.get();
 
     if (Result<std::unique_ptr<render::WidgetRenderer>> renderer = render::WidgetRenderer::create(); renderer) {
         m_renderer = std::move(renderer.value());
@@ -51,21 +54,27 @@ Application::Application(HINSTANCE instance)
         log::error("renderer unavailable: {}", renderer.error().describe());
     }
 
-    // Sample content until the media session feeds the model.
-    m_model.title = L"あぶく";
-    m_model.artist = L"ヨルシカ";
+    m_model.title = config::placeholderTitle;
+    m_model.artist = config::placeholderArtist;
+
+    m_widget.onClick([this](POINT position) { onWidgetClick(position); });
 
     m_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
 
     m_alignmentWatcher = std::make_unique<taskbar::RegistryWatcher>(
-        HKEY_CURRENT_USER, taskbar::explorerAdvancedKey, m_messageWindow.get(), WM_THRENODY_ALIGNMENT_CHANGED);
+        HKEY_CURRENT_USER, taskbar::explorerAdvancedKey, messageWindow, WM_THRENODY_ALIGNMENT_CHANGED);
 
-    SetTimer(m_messageWindow.get(), healthTimerId, config::taskbarHealthCheckMs, nullptr);
-    syncWithTaskbar();
+    // Media events arrive on thread-pool threads; bounce them to this thread.
+    m_media = std::make_unique<media::MediaSession>(
+        [messageWindow] { PostMessageW(messageWindow, WM_THRENODY_MEDIA_CHANGED, 0, 0); });
+
+    SetTimer(messageWindow, healthTimerId, config::taskbarHealthCheckMs, nullptr);
+    syncWithTaskbar(true);
 }
 
 Application::~Application() {
-    // The watcher posts to the message window; stop it before the window goes.
+    // Both post to the message window; stop them before the window goes.
+    m_media.reset();
     m_alignmentWatcher.reset();
 }
 
@@ -98,14 +107,18 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
     if (message == m_taskbarCreatedMessage && m_taskbarCreatedMessage != 0) {
         log::info("taskbar created; re-embedding");
         m_layout.reset();
-        syncWithTaskbar();
+        syncWithTaskbar(true);
         return 0;
     }
 
     switch (message) {
         case WM_THRENODY_ALIGNMENT_CHANGED:
         case WM_TIMER:
-            syncWithTaskbar();
+            syncWithTaskbar(false);
+            return 0;
+
+        case WM_THRENODY_MEDIA_CHANGED:
+            onMediaChanged();
             return 0;
 
         case WM_CLOSE:
@@ -129,7 +142,7 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 
 // Brings the widget in line with the taskbar's current state. Cheap enough to
 // run on every timer tick: a handful of FindWindow/GetWindowRect calls.
-void Application::syncWithTaskbar() {
+void Application::syncWithTaskbar(bool force) {
     const std::optional<taskbar::Layout> current = taskbar::queryLayout();
     if (!current) {
         if (m_layout) {
@@ -141,7 +154,7 @@ void Application::syncWithTaskbar() {
 
     const bool embedded = m_widget.isEmbeddedIn(current->taskbar);
     const bool layoutChanged = !m_layout || !m_layout->sameGeometry(*current);
-    if (embedded && !layoutChanged) {
+    if (embedded && !layoutChanged && !force) {
         return;
     }
 
@@ -150,10 +163,12 @@ void Application::syncWithTaskbar() {
     }
 
     // Height follows the taskbar; width follows the content.
-    const int heightPx = win32::height(current->bounds) - 2 * win32::scaleDip(config::widgetVerticalMarginDip, current->dpi);
+    const int heightPx =
+        win32::height(current->bounds) - 2 * win32::scaleDip(config::widgetVerticalMarginDip, current->dpi);
     int widthPx = win32::scaleDip(config::widgetMaxWidthDip, current->dpi) / 2;
     if (m_renderer) {
-        if (Result<render::WidgetLayout> widgetLayout = m_renderer->layout(m_model, pixelsToDip(heightPx, current->dpi));
+        if (Result<render::WidgetLayout> widgetLayout =
+                m_renderer->layout(m_model, pixelsToDip(heightPx, current->dpi));
             widgetLayout) {
             m_widgetLayout = widgetLayout.value();
             widthPx = dipToPixels(m_widgetLayout.width, current->dpi);
@@ -172,8 +187,6 @@ void Application::syncWithTaskbar() {
                   win32::height(rect), current->dpi);
     } else if (!win32::sameRect(rect, m_widgetRect)) {
         m_widget.move(rect);
-        log::info("widget moved to ({}, {}) {}x{} px", rect.left, rect.top, win32::width(rect),
-                  win32::height(rect));
     }
 
     m_widgetRect = rect;
@@ -202,6 +215,68 @@ void Application::repaintWidget() {
         return;
     }
     m_widget.show();
+}
+
+void Application::onMediaChanged() {
+    const media::NowPlaying now = m_media->snapshot();
+
+    const bool textChanged = now.available ? (m_model.title != now.title || m_model.artist != now.artist)
+                                           : (m_model.title != config::placeholderTitle);
+    const bool playingChanged = m_model.playing != (now.available && now.playing);
+    if (now.available) {
+        m_model.title = now.title;
+        m_model.artist = now.artist;
+        m_model.playing = now.playing;
+        if (m_model.coverVersion != now.coverVersion) {
+            m_model.coverImage = now.cover;
+            m_model.coverVersion = now.coverVersion;
+        }
+    } else {
+        m_model.title = config::placeholderTitle;
+        m_model.artist = config::placeholderArtist;
+        m_model.playing = false;
+        m_model.coverImage.clear();
+        m_model.coverVersion = now.coverVersion;
+    }
+
+    if (textChanged || playingChanged) {
+        log::info("now playing: {} / {} ({})", text::toUtf8(m_model.title), text::toUtf8(m_model.artist),
+                  now.available ? (now.playing ? "playing" : "paused") : "no session");
+    }
+    if (textChanged) {
+        syncWithTaskbar(true);  // Width may change with the text.
+    } else {
+        repaintWidget();
+    }
+}
+
+void Application::onWidgetClick(POINT position) {
+    if (!m_layout) {
+        return;
+    }
+    const float x = pixelsToDip(position.x, m_layout->dpi);
+    const float y = pixelsToDip(position.y, m_layout->dpi);
+
+    const interaction::Zone zone = interaction::hitTest(m_widgetLayout, x, y);
+    log::info("click at ({:.0f}, {:.0f}) dip -> zone {}", x, y, static_cast<int>(zone));
+
+    switch (zone) {
+        case interaction::Zone::Previous:
+            m_media->send(media::TransportCommand::Previous);
+            break;
+        case interaction::Zone::PlayPause:
+            m_media->send(media::TransportCommand::TogglePlayPause);
+            // Spotify takes several seconds to report the new state through
+            // SMTC; flip the glyph now and let the event confirm it.
+            m_model.playing = !m_model.playing;
+            repaintWidget();
+            break;
+        case interaction::Zone::Next:
+            m_media->send(media::TransportCommand::Next);
+            break;
+        default:
+            break;  // Remaining zones arrive with the interaction phase.
+    }
 }
 
 }  // namespace threnody

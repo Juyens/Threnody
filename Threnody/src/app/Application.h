@@ -1,5 +1,7 @@
 #pragma once
 
+#include "interaction/HitTest.h"
+#include "media/MediaSession.h"
 #include "render/LayeredSurface.h"
 #include "render/WidgetLayout.h"
 #include "render/WidgetModel.h"
@@ -17,8 +19,9 @@
 namespace threnody {
 
 // Owns the message loop and wires the pieces together: a hidden top-level
-// window receives broadcasts (TaskbarCreated), timer ticks and registry-change
-// notifications, and reacts by (re)embedding, moving or repainting the widget.
+// window receives broadcasts (TaskbarCreated), timer ticks, registry-change
+// and media-change notifications, and reacts by (re)embedding, moving or
+// repainting the widget.
 class Application {
 public:
     explicit Application(HINSTANCE instance);
@@ -34,8 +37,12 @@ private:
     static LRESULT CALLBACK messageProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
-    void syncWithTaskbar();
+    // `force` relayouts even when the taskbar itself did not change, for
+    // content changes that alter the widget width.
+    void syncWithTaskbar(bool force);
     void repaintWidget();
+    void onMediaChanged();
+    void onWidgetClick(POINT position);
 
     HINSTANCE m_instance{};
     win32::WindowClass m_messageClass;
@@ -47,6 +54,8 @@ private:
     std::unique_ptr<render::WidgetRenderer> m_renderer;
     render::WidgetModel m_model;
     render::WidgetLayout m_widgetLayout{};
+
+    std::unique_ptr<media::MediaSession> m_media;
 
     std::unique_ptr<taskbar::RegistryWatcher> m_alignmentWatcher;
     std::optional<taskbar::Layout> m_layout;

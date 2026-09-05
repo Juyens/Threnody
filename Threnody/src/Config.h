@@ -38,6 +38,10 @@ inline constexpr wchar_t fontFamilyKorean[] = L"Malgun Gothic";
 inline constexpr float titleFontSizeDip = 12.5f;
 inline constexpr float artistFontSizeDip = 11.0f;
 
+// Shown while Spotify has no media session.
+inline constexpr wchar_t placeholderTitle[] = L"Spotify";
+inline constexpr wchar_t placeholderArtist[] = L"Nada en reproducción";
+
 // Colours, straight alpha. Tuned for the dark Windows 11 taskbar.
 inline constexpr Color backgroundColor{1.0f, 1.0f, 1.0f, 0.07f};
 inline constexpr Color backgroundBorderColor{1.0f, 1.0f, 1.0f, 0.06f};
