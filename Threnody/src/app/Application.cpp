@@ -367,7 +367,23 @@ void Application::onMediaChanged() {
     const bool sessionChanged = m_sessionAvailable != now.available;
     const bool coverChanged = m_model.coverVersion != now.coverVersion;
     m_sessionAvailable = now.available;
-    m_smtcPlaying = now.available && now.playing;
+    const bool smtcPlaying = now.available && now.playing;
+    if (smtcPlaying != m_smtcPlaying) {
+        // Take SMTC's word right away when it does speak (sometimes it is
+        // quick); the audio watch confirms or corrects within its hold.
+        m_smtcPlaying = smtcPlaying;
+        m_lastAudioActiveTick = smtcPlaying ? GetTickCount64() : 0;
+        if (!smtcPlaying) {
+            m_audioIgnoreUntilTick = GetTickCount64() + config::audioPauseGraceMs;
+        }
+        if (smtcPlaying != m_model.playing) {
+            m_model.playing = smtcPlaying;
+            log::info("playback shown as {} (smtc)", smtcPlaying ? "playing" : "paused");
+            if (smtcPlaying) {
+                setSpectrumRunning(true);
+            }
+        }
+    }
 
     if (now.available) {
         m_model.title = now.title;
@@ -392,6 +408,7 @@ void Application::onMediaChanged() {
     }
 
     if (textChanged) {
+        m_lastTextChangeTick = GetTickCount64();
         log::info("now playing: {} / {}", text::toUtf8(m_model.title), text::toUtf8(m_model.artist));
     }
     if (sessionChanged) {
@@ -449,6 +466,7 @@ void Application::onWidgetClick(POINT position) {
             break;
         case interaction::Zone::Previous:
             m_media->send(media::TransportCommand::Previous);
+            m_lastTextChangeTick = GetTickCount64();  // A loading gap is coming; do not read it as a pause.
             break;
         case interaction::Zone::PlayPause:
             m_media->send(media::TransportCommand::TogglePlayPause);
@@ -457,6 +475,9 @@ void Application::onWidgetClick(POINT position) {
             m_model.playing = !m_model.playing;
             m_smtcPlaying = m_model.playing;
             m_lastAudioActiveTick = m_model.playing ? GetTickCount64() : 0;
+            if (!m_model.playing) {
+                m_audioIgnoreUntilTick = GetTickCount64() + config::audioPauseGraceMs;
+            }
             if (m_model.playing) {
                 setSpectrumRunning(true);
             }
@@ -465,6 +486,7 @@ void Application::onWidgetClick(POINT position) {
             break;
         case interaction::Zone::Next:
             m_media->send(media::TransportCommand::Next);
+            m_lastTextChangeTick = GetTickCount64();
             break;
         case interaction::Zone::Visualizer:
             toggleColorMode();
@@ -822,6 +844,10 @@ void Application::onAudioTick() {
     const std::uint64_t written = m_capture.samples().totalWritten();
     const bool advanced = written != m_lastWritten;
     m_lastWritten = written;
+    if (advanced != m_audioFlowing) {
+        m_audioFlowing = advanced;
+        log::info("audio stream {}", advanced ? "resumed" : "stalled");
+    }
     if (advanced) {
         std::array<float, 2048> recent{};
         m_capture.samples().latest(recent);
@@ -830,7 +856,7 @@ void Application::onAudioTick() {
             energy += static_cast<double>(sample) * sample;
         }
         const double rms = std::sqrt(energy / static_cast<double>(recent.size()));
-        if (rms > config::audioSilenceRms) {
+        if (rms > config::audioSilenceRms && GetTickCount64() >= m_audioIgnoreUntilTick) {
             m_lastAudioActiveTick = GetTickCount64();
             m_audioSeen = true;
         }
@@ -844,7 +870,10 @@ void Application::onAudioTick() {
 void Application::updatePlayingState() {
     bool playing = m_smtcPlaying;
     if (m_audioWatch && m_audioSeen) {
-        playing = GetTickCount64() - m_lastAudioActiveTick < config::audioPauseHoldMs;
+        const ULONGLONG now = GetTickCount64();
+        const bool justChangedTrack = now - m_lastTextChangeTick < config::audioTrackChangeWindowMs;
+        const unsigned hold = justChangedTrack ? config::audioTrackChangeHoldMs : config::audioPauseHoldMs;
+        playing = now - m_lastAudioActiveTick < hold;
     }
     if (playing == m_model.playing) {
         return;

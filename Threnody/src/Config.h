@@ -56,11 +56,16 @@ inline constexpr float rainbowValue = 1.0f;
 inline constexpr unsigned coverSampleSize = 48;
 
 // Play/pause shown from the captured audio: sampled this often, silence
-// below this RMS, and paused once nothing louder arrived for the hold time
-// (long enough to ride out the gap between tracks).
-inline constexpr unsigned audioWatchMs = 200;
+// below this RMS, and paused once nothing louder arrived for the hold time.
+// Right after a track change the hold is longer, because the gap while the
+// next track loads is silence too. Spotify keeps streaming silent samples
+// while paused, so silence is the only audio cue there is.
+inline constexpr unsigned audioWatchMs = 100;
 inline constexpr double audioSilenceRms = 1e-4;
-inline constexpr unsigned audioPauseHoldMs = 1500;
+inline constexpr unsigned audioPauseHoldMs = 700;
+inline constexpr unsigned audioTrackChangeHoldMs = 2000;
+inline constexpr unsigned audioTrackChangeWindowMs = 3000;
+inline constexpr unsigned audioPauseGraceMs = 600;  // Spotify's fade-out after a pause is still audible.
 
 // How long to wait before retrying a failed or lost audio capture.
 inline constexpr unsigned captureRetryMs = 10000;

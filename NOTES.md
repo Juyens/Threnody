@@ -151,12 +151,15 @@ text (artwork only when the text changed) as the safety net. Measured after
 that: 1.8 s from the click on "next" to the new title, which is Spotify's
 own announcement delay.
 
-**Play/pause comes from the captured audio, not from SMTC.** Spotify reports
-`PlaybackInfoChanged` 5 to 14 s after the fact. Since the widget already
-captures Spotify's audio, silence (or no new samples) for 1.5 s means paused
-and any signal means playing; SMTC's status is only used when there is no
-capture. A click on play/pause flips the glyph at once and the audio confirms
-it. The same signal empties the visualiser bars on pause.
+**Play/pause is the fastest of two signals.** Spotify's `PlaybackInfoChanged`
+arrives anywhere between 50 ms and 14 s after the fact, so it is applied the
+moment it comes but never waited for. The captured audio confirms or corrects
+it: signal above the floor means playing; silence for 0.7 s means paused
+(2 s right after a track change, where the loading gap is silence too).
+Spotify keeps streaming silent samples while paused, so a stalled stream is
+not a usable cue, and it fades out over a few hundred ms on pause, so audio
+is ignored for 600 ms after any announced pause or the tail undoes it.
+Measured: play and pause from Spotify reflected in 60-70 ms.
 
 **The taskbar gets rebuilt.** After a session unlock or an explorer restart,
 an embedded window can be orphaned and UI Automation queries against the

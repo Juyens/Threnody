@@ -124,6 +124,9 @@ private:
     bool m_smtcPlaying{false};
     bool m_audioWatch{false};
     bool m_audioSeen{false};
+    bool m_audioFlowing{false};
+    ULONGLONG m_lastTextChangeTick{};
+    ULONGLONG m_audioIgnoreUntilTick{};  // Spotify fades out on pause; that tail is not "playing".
     std::uint64_t m_lastWritten{};
     ULONGLONG m_lastAudioActiveTick{};
     bool m_hoverFading{false};
