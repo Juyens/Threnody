@@ -4,7 +4,7 @@
 
 namespace threnody::interaction {
 
-enum class Zone { Background, Cover, Title, Artist, Previous, PlayPause, Next, Visualizer };
+using Zone = render::Zone;
 
 // Maps a point in widget device-independent pixels to the zone under it.
 [[nodiscard]] Zone hitTest(const render::WidgetLayout& layout, float x, float y) noexcept;

@@ -17,6 +17,16 @@ constexpr D2D1_RECT_F toD2D(const RectF& rect) noexcept {
     return D2D1_RECT_F{rect.left, rect.top, rect.right, rect.bottom};
 }
 
+constexpr Color mix(const Color& a, const Color& b, float t) noexcept {
+    return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t};
+}
+
+// Cubic ease-out of the hover fade, so it lands softly like the reference.
+constexpr float eased(float t) noexcept {
+    const float u = 1.0f - std::clamp(t, 0.0f, 1.0f);
+    return 1.0f - u * u * u;
+}
+
 // A very wide layout box: measures the natural width of a line.
 constexpr float measureWidth = 4096.0f;
 
@@ -283,7 +293,8 @@ Result<void> WidgetRenderer::draw(LayeredSurface& surface, const WidgetModel& mo
     m_target->SetTransform(D2D1::Matrix3x2F::Identity());
     m_target->Clear(D2D1_COLOR_F{0.0f, 0.0f, 0.0f, 0.0f});
 
-    drawBackground(layout);
+    drawBackground(layout, model);
+    drawHoverHighlight(layout, model);
     drawCover(layout, model);
     drawText(layout);
     drawControls(layout, model);
@@ -304,13 +315,14 @@ void WidgetRenderer::fill(const Color& color) {
     m_brush->SetColor(toD2D(color));
 }
 
-void WidgetRenderer::drawBackground(const WidgetLayout& layout) {
+void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetModel& model) {
+    const float hover = eased(model.hoverProgress);
     const D2D1_ROUNDED_RECT shape{
         .rect = {0.0f, 0.0f, layout.width, layout.height},
         .radiusX = config::backgroundCornerRadiusDip,
         .radiusY = config::backgroundCornerRadiusDip,
     };
-    fill(config::backgroundColor);
+    fill(mix(config::backgroundColor, config::hoverBackgroundColor, hover));
     m_target->FillRoundedRectangle(shape, m_brush.get());
 
     const D2D1_ROUNDED_RECT border{
@@ -318,8 +330,38 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout) {
         .radiusX = config::backgroundCornerRadiusDip,
         .radiusY = config::backgroundCornerRadiusDip,
     };
-    fill(config::backgroundBorderColor);
+    fill(mix(config::backgroundBorderColor, config::hoverBorderColor, hover));
     m_target->DrawRoundedRectangle(border, m_brush.get(), 1.0f);
+}
+
+// Rounded highlight behind whatever the pointer is over, like a transparent
+// Fluent button lighting up.
+void WidgetRenderer::drawHoverHighlight(const WidgetLayout& layout, const WidgetModel& model) {
+    if (!model.hover) {
+        return;
+    }
+    RectF area;
+    switch (*model.hover) {
+        case Zone::Previous: area = layout.previous; break;
+        case Zone::PlayPause: area = layout.playPause; break;
+        case Zone::Next: area = layout.next; break;
+        case Zone::Title: area = layout.title; break;
+        case Zone::Artist: area = layout.artist; break;
+        default: return;
+    }
+    const bool control = *model.hover == Zone::Previous || *model.hover == Zone::PlayPause || *model.hover == Zone::Next;
+    if (control) {
+        area.top += config::controlHoverInsetDip;
+        area.bottom -= config::controlHoverInsetDip;
+    } else {
+        area.left -= config::textHoverPaddingDip;
+        area.right += config::textHoverPaddingDip;
+        area.top -= 1.0f;
+        area.bottom += 1.0f;
+    }
+    const D2D1_ROUNDED_RECT shape{toD2D(area), config::hoverHighlightRadiusDip, config::hoverHighlightRadiusDip};
+    fill(config::hoverHighlightColor.withAlpha(config::hoverHighlightColor.a * eased(model.hoverProgress)));
+    m_target->FillRoundedRectangle(shape, m_brush.get());
 }
 
 void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& model) {

@@ -2,6 +2,10 @@
 
 namespace threnody::render {
 
+// The clickable parts of the widget. Shared by hit-testing and by the
+// renderer, which highlights the one under the pointer.
+enum class Zone { Background, Cover, Title, Artist, Previous, PlayPause, Next, Visualizer };
+
 struct RectF {
     float left{};
     float top{};

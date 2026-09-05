@@ -73,6 +73,15 @@ inline constexpr wchar_t placeholderArtist[] = L"Nada en reproducción";
 // Colours, straight alpha. Tuned for the dark Windows 11 taskbar.
 inline constexpr Color backgroundColor{1.0f, 1.0f, 1.0f, 0.07f};
 inline constexpr Color backgroundBorderColor{1.0f, 1.0f, 1.0f, 0.06f};
+// While the pointer is over the widget the panel brightens (200 ms fade) and
+// the control or text under the pointer gets a rounded highlight.
+inline constexpr Color hoverBackgroundColor{1.0f, 1.0f, 1.0f, 0.13f};
+inline constexpr Color hoverBorderColor{1.0f, 1.0f, 1.0f, 0.18f};
+inline constexpr Color hoverHighlightColor{1.0f, 1.0f, 1.0f, 0.10f};
+inline constexpr float hoverHighlightRadiusDip = 4.0f;
+inline constexpr float controlHoverInsetDip = 6.0f;   // Vertical inset of a control's highlight.
+inline constexpr float textHoverPaddingDip = 3.0f;
+inline constexpr unsigned hoverFadeMs = 200;
 inline constexpr Color coverPlaceholderColor{1.0f, 1.0f, 1.0f, 0.12f};
 inline constexpr Color titleColor{1.0f, 1.0f, 1.0f, 0.95f};
 inline constexpr Color artistColor{1.0f, 1.0f, 1.0f, 0.60f};

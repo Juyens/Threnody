@@ -26,6 +26,8 @@ constexpr wchar_t messageClassName[] = L"ThrenodyMessageWindow";
 
 constexpr UINT_PTR healthTimerId = 1;
 constexpr UINT_PTR spectrumTimerId = 2;
+constexpr UINT_PTR hoverTimerId = 3;
+constexpr unsigned hoverFrameMs = 16;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
@@ -100,7 +102,8 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     applyLockKeySettings();
 
     m_widget.onClick([this](POINT position) { onWidgetClick(position); });
-    m_widget.onHover([this] { m_spotifyWindow.rememberForeground(); });
+    m_widget.onPointerMove([this](POINT position) { onPointerMove(position); });
+    m_widget.onPointerLeave([this] { onPointerLeave(); });
 
     m_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
 
@@ -223,6 +226,8 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 manageCapture();
             } else if (wParam == spectrumTimerId) {
                 onSpectrumFrame();
+            } else if (wParam == hoverTimerId) {
+                onHoverFrame();
             }
             return 0;
 
@@ -256,6 +261,7 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         case WM_DESTROY:
             KillTimer(hwnd, healthTimerId);
             KillTimer(hwnd, spectrumTimerId);
+            KillTimer(hwnd, hoverTimerId);
             PostQuitMessage(EXIT_SUCCESS);
             return 0;
 
@@ -429,22 +435,10 @@ void Application::onWidgetClick(POINT position) {
             m_spotifyWindow.toggle();
             break;
         case interaction::Zone::Title:
-            if (linksMatchCurrentTrack() && !m_links->trackUri.empty()) {
-                shell::openSpotifyUri(m_links->trackUri);
-            } else if (m_sessionAvailable && !m_model.title.empty()) {
-                shell::openSpotifySearch(m_model.artist.empty() ? m_model.title : m_model.artist + L" " + m_model.title);
-            } else {
-                m_spotifyWindow.toggle();
-            }
+            openTrackOrArtist(false);
             break;
         case interaction::Zone::Artist:
-            if (linksMatchCurrentTrack() && !m_links->artistUri.empty()) {
-                shell::openSpotifyUri(m_links->artistUri);
-            } else if (m_sessionAvailable && !m_model.artist.empty()) {
-                shell::openSpotifySearch(m_model.artist);
-            } else {
-                m_spotifyWindow.toggle();
-            }
+            openTrackOrArtist(true);
             break;
         case interaction::Zone::Previous:
             m_media->send(media::TransportCommand::Previous);
@@ -465,6 +459,78 @@ void Application::onWidgetClick(POINT position) {
         case interaction::Zone::Visualizer:
             toggleColorMode();
             break;
+    }
+}
+
+// Title or artist click. Opening a spotify: link raises Spotify, so the
+// window toggle is told about it; otherwise the next cover click would try to
+// raise an already-raised window instead of minimising it.
+void Application::openTrackOrArtist(bool artist) {
+    const bool exact = linksMatchCurrentTrack() && !(artist ? m_links->artistUri : m_links->trackUri).empty();
+    if (exact) {
+        shell::openSpotifyUri(artist ? m_links->artistUri : m_links->trackUri);
+    } else if (m_sessionAvailable && !(artist ? m_model.artist : m_model.title).empty()) {
+        if (artist) {
+            shell::openSpotifySearch(m_model.artist);
+        } else {
+            shell::openSpotifySearch(m_model.artist.empty() ? m_model.title : m_model.artist + L" " + m_model.title);
+        }
+    } else {
+        m_spotifyWindow.toggle();
+        return;
+    }
+    m_spotifyWindow.assumeSpotifyInFront();
+}
+
+void Application::onPointerMove(POINT position) {
+    // Re-read the foreground on every move: Spotify may have come to the
+    // front (a link, a media key) while the pointer stayed on the widget.
+    m_spotifyWindow.rememberForeground();
+    if (!m_layout) {
+        return;
+    }
+    const std::optional<render::Zone> zone = interaction::hitTest(
+        m_widgetLayout, pixelsToDip(position.x, m_layout->dpi), pixelsToDip(position.y, m_layout->dpi));
+    if (zone != m_model.hover) {
+        m_model.hover = zone;
+        repaintWidget();
+    }
+    setHoverFading(true);
+}
+
+void Application::onPointerLeave() {
+    m_model.hover.reset();
+    setHoverFading(true);
+    repaintWidget();
+}
+
+void Application::setHoverFading(bool fading) {
+    if (fading == m_hoverFading || !m_messageWindow) {
+        return;
+    }
+    m_hoverFading = fading;
+    if (fading) {
+        m_hoverFrameTick = GetTickCount64();
+        SetTimer(m_messageWindow.get(), hoverTimerId, hoverFrameMs, nullptr);
+    } else {
+        KillTimer(m_messageWindow.get(), hoverTimerId);
+    }
+}
+
+// Moves the hover fade toward its target (1 while the pointer is over the
+// widget, 0 after it leaves) and stops the timer once it gets there.
+void Application::onHoverFrame() {
+    const ULONGLONG now = GetTickCount64();
+    const float step = static_cast<float>(now - m_hoverFrameTick) / static_cast<float>(config::hoverFadeMs);
+    m_hoverFrameTick = now;
+    const float target = m_model.hover ? 1.0f : 0.0f;
+    const float before = m_model.hoverProgress;
+    m_model.hoverProgress = target > before ? std::min(target, before + step) : std::max(target, before - step);
+    if (m_model.hoverProgress != before) {
+        repaintWidget();
+    }
+    if (m_model.hoverProgress == target) {
+        setHoverFading(false);
     }
 }
 

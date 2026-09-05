@@ -4,8 +4,11 @@
 #include "color/Color.h"
 #include "color/ColorMode.h"
 
+#include "render/WidgetLayout.h"
+
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,6 +36,11 @@ struct WidgetModel {
     ColorMode colorMode{ColorMode::Track};
     Color accent{config::defaultAccentColor};
     float rainbowPhase{};
+
+    // Pointer feedback: the zone under the pointer, and how far the whole
+    // widget has faded toward its hovered look (0 = idle, 1 = hovered).
+    std::optional<Zone> hover;
+    float hoverProgress{};
 };
 
 }  // namespace threnody::render

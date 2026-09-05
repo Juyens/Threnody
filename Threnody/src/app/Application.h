@@ -56,6 +56,11 @@ private:
     void onMediaChanged();
     void updateAccentFromCover();
     void onWidgetClick(POINT position);
+    void onPointerMove(POINT position);
+    void onPointerLeave();
+    void setHoverFading(bool fading);
+    void onHoverFrame();
+    void openTrackOrArtist(bool artist);
     void toggleColorMode();
     void saveSettings();
 
@@ -110,6 +115,8 @@ private:
     dsp::SpectrumAnalyzer m_analyzer;
     std::array<float, dsp::SpectrumAnalyzer::fftSize> m_frame{};
     bool m_spectrumRunning{false};
+    bool m_hoverFading{false};
+    ULONGLONG m_hoverFrameTick{};
 
     std::unique_ptr<overlay::LockKeyOverlay> m_lockOverlay;
     std::unique_ptr<overlay::KeyboardHook> m_keyboardHook;

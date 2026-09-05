@@ -17,6 +17,10 @@ public:
     void rememberForeground() noexcept;
     void toggle();
 
+    // Something else just raised Spotify (a spotify: link): remember that so
+    // the next toggle minimises instead of raising an already-raised window.
+    void assumeSpotifyInFront() noexcept;
+
 private:
     HWND m_foreground{};
 };

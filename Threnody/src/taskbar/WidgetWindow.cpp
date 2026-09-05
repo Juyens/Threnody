@@ -107,14 +107,17 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
                 m_hovering = true;
                 TRACKMOUSEEVENT track{.cbSize = sizeof(TRACKMOUSEEVENT), .dwFlags = TME_LEAVE, .hwndTrack = hwnd};
                 TrackMouseEvent(&track);
-                if (m_onHover) {
-                    m_onHover();
-                }
+            }
+            if (m_onPointerMove) {
+                m_onPointerMove(POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)});
             }
             return 0;
 
         case WM_MOUSELEAVE:
             m_hovering = false;
+            if (m_onPointerLeave) {
+                m_onPointerLeave();
+            }
             return 0;
 
         case WM_LBUTTONUP:

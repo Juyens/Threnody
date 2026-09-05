@@ -36,8 +36,9 @@ public:
     void show() const noexcept;
 
     void onClick(ClickHandler handler) { m_onClick = std::move(handler); }
-    // Fired once each time the pointer enters the widget.
-    void onHover(std::function<void()> handler) { m_onHover = std::move(handler); }
+    // Fired on every pointer move over the widget, and once when it leaves.
+    void onPointerMove(ClickHandler handler) { m_onPointerMove = std::move(handler); }
+    void onPointerLeave(std::function<void()> handler) { m_onPointerLeave = std::move(handler); }
 
     [[nodiscard]] HWND hwnd() const noexcept { return m_hwnd.get(); }
 
@@ -49,7 +50,8 @@ private:
     win32::WindowClass m_class;
     win32::unique_hwnd m_hwnd;
     ClickHandler m_onClick;
-    std::function<void()> m_onHover;
+    ClickHandler m_onPointerMove;
+    std::function<void()> m_onPointerLeave;
     bool m_hovering{false};
 };
 

@@ -58,7 +58,8 @@ private:
                                               IDWriteTextFormat& format);
     void releaseDeviceResources() noexcept;
 
-    void drawBackground(const WidgetLayout& layout);
+    void drawBackground(const WidgetLayout& layout, const WidgetModel& model);
+    void drawHoverHighlight(const WidgetLayout& layout, const WidgetModel& model);
     void drawCover(const WidgetLayout& layout, const WidgetModel& model);
     void drawText(const WidgetLayout& layout);
     void drawControls(const WidgetLayout& layout, const WidgetModel& model);

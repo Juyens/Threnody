@@ -64,6 +64,12 @@ void SpotifyWindowToggle::rememberForeground() noexcept {
     m_foreground = foreground;
 }
 
+void SpotifyWindowToggle::assumeSpotifyInFront() noexcept {
+    if (const std::optional<SpotifyProcess> spotify = findSpotify(); spotify && spotify->mainWindow != nullptr) {
+        m_foreground = spotify->mainWindow;
+    }
+}
+
 void SpotifyWindowToggle::toggle() {
     const std::optional<SpotifyProcess> spotify = findSpotify();
     if (!spotify) {
