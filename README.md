@@ -10,7 +10,7 @@
 [![Spotify](https://img.shields.io/badge/Spotify-1db954?style=flat-square)](https://www.spotify.com/)
 [![Tests](https://img.shields.io/badge/tests-35%20passing-0cce6b?style=flat-square)](#building-from-source)
 
-<img src="docs/widget.png" width="820" alt="The Threnody widget in the Windows 11 taskbar">
+<img src="docs/widget.png" width="403" alt="The Threnody widget in the Windows 11 taskbar">
 
 </div>
 
