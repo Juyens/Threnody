@@ -9,6 +9,7 @@
 #include <unknwn.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Web.Http.Headers.h>
 #include <winrt/Windows.Web.Http.h>
 
@@ -32,6 +33,8 @@ constexpr wchar_t authorizeEndpoint[] = L"https://accounts.spotify.com/authorize
 constexpr wchar_t tokenEndpoint[] = L"https://accounts.spotify.com/api/token";
 constexpr wchar_t nowPlayingEndpoint[] = L"https://api.spotify.com/v1/me/player/currently-playing";
 constexpr unsigned authorizationTimeoutSeconds = 300;
+constexpr int minArtworkPx = 128;  // Covers the widget's cover square at high DPI.
+constexpr std::uint32_t maxArtworkBytes = std::uint32_t{8} << 20;
 
 std::string describe(const winrt::hresult_error& e) {
     return std::format("0x{:08X} {}", static_cast<unsigned long>(e.code().value), winrt::to_string(e.message()));
@@ -51,6 +54,35 @@ std::wstring urlEncode(std::wstring_view text) {
     return out;
 }
 
+// The smallest album image at least `minArtworkPx` wide, else the widest.
+// Spotify lists images widest first; a missing width counts as unknown.
+std::wstring pickArtworkUrl(const json& item) {
+    const auto album = item.find("album");
+    if (album == item.end() || !album->is_object()) {
+        return {};
+    }
+    const auto images = album->find("images");
+    if (images == album->end() || !images->is_array()) {
+        return {};
+    }
+    std::string best;
+    for (const json& image : *images) {
+        if (!image.is_object()) {
+            continue;
+        }
+        const auto url = image.find("url");
+        if (url == image.end() || !url->is_string()) {
+            continue;
+        }
+        const auto width = image.find("width");
+        const bool bigEnough = width == image.end() || !width->is_number() || width->get<int>() >= minArtworkPx;
+        if (best.empty() || bigEnough) {
+            best = url->get<std::string>();
+        }
+    }
+    return text::toWide(best);
+}
+
 }  // namespace
 
 struct SpotifyClient::Shared {
@@ -62,6 +94,7 @@ struct SpotifyClient::Shared {
     std::chrono::steady_clock::time_point accessTokenExpiry{};
     Status status;
     std::optional<TrackLinks> links;
+    std::optional<Artwork> artwork;
 
     // Pending authorisation.
     std::string pendingVerifier;
@@ -243,6 +276,7 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
             links.artistName = text::toWide(artists->front().value("name", ""));
             links.artistUri = text::toWide(artists->front().value("uri", ""));
         }
+        links.artworkUrl = pickArtworkUrl(*item);
         {
             std::scoped_lock lock{shared->mutex};
             shared->links = std::move(links);
@@ -252,6 +286,34 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
         log::warn("Spotify currently-playing failed: {}", describe(e));
     } catch (const json::exception& e) {
         log::warn("Spotify currently-playing: bad JSON: {}", e.what());
+    }
+}
+
+// Album art lives on Spotify's public image CDN; no token needed.
+winrt::fire_and_forget fetchArtwork(std::weak_ptr<Shared> weak, std::wstring url) {
+    try {
+        HttpClient client;
+        const HttpResponseMessage response = co_await client.GetAsync(Uri{url});
+        if (!response.IsSuccessStatusCode()) {
+            log::warn("Spotify artwork: HTTP {}", static_cast<int>(response.StatusCode()));
+            co_return;
+        }
+        const winrt::Windows::Storage::Streams::IBuffer buffer = co_await response.Content().ReadAsBufferAsync();
+        if (buffer.Length() == 0 || buffer.Length() > maxArtworkBytes) {
+            log::warn("Spotify artwork: unexpected size {} bytes", buffer.Length());
+            co_return;
+        }
+        auto shared = weak.lock();
+        if (!shared) {
+            co_return;
+        }
+        {
+            std::scoped_lock lock{shared->mutex};
+            shared->artwork = Artwork{.url = std::move(url), .bytes = {buffer.data(), buffer.data() + buffer.Length()}};
+        }
+        shared->notify();
+    } catch (const winrt::hresult_error& e) {
+        log::warn("Spotify artwork failed: {}", describe(e));
     }
 }
 
@@ -362,6 +424,7 @@ void SpotifyClient::disconnect() {
         m_shared->credentials = {};
         m_shared->accessToken.clear();
         m_shared->links.reset();
+        m_shared->artwork.reset();
         m_shared->status = {AuthState::Disconnected, ""};
         listener = std::move(m_shared->listener);
     }
@@ -379,6 +442,17 @@ void SpotifyClient::requestNowPlaying() {
 std::optional<TrackLinks> SpotifyClient::links() const {
     std::scoped_lock lock{m_shared->mutex};
     return m_shared->links;
+}
+
+void SpotifyClient::requestArtwork(std::wstring url) {
+    if (!url.empty()) {
+        fetchArtwork(m_shared, std::move(url));
+    }
+}
+
+std::optional<Artwork> SpotifyClient::artwork() const {
+    std::scoped_lock lock{m_shared->mutex};
+    return m_shared->artwork;
 }
 
 }  // namespace threnody::spotify

@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace threnody::spotify {
 
@@ -27,6 +29,13 @@ struct TrackLinks {
     std::wstring artistName;
     std::wstring trackUri;   // spotify:track:...
     std::wstring artistUri;  // spotify:artist:...
+    std::wstring artworkUrl;  // Album art, the widget's fallback when SMTC has none.
+};
+
+// Downloaded album art, tagged with the URL it came from.
+struct Artwork {
+    std::wstring url;
+    std::vector<std::uint8_t> bytes;  // Encoded image.
 };
 
 // Spotify Web API client: authorisation code flow with PKCE (no client
@@ -56,6 +65,10 @@ public:
     // Fetches what is playing; result appears in `links()`.
     void requestNowPlaying();
     [[nodiscard]] std::optional<TrackLinks> links() const;
+
+    // Downloads `url` (a TrackLinks::artworkUrl); result appears in `artwork()`.
+    void requestArtwork(std::wstring url);
+    [[nodiscard]] std::optional<Artwork> artwork() const;
 
     struct Shared;
 

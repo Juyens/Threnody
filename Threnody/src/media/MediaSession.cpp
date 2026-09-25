@@ -150,13 +150,27 @@ winrt::fire_and_forget refreshProperties(std::weak_ptr<Shared> weak) {
             const auto stream = co_await thumbnail.OpenReadAsync();
             const std::uint64_t size = stream.Size();
             if (size > 0 && size < maxCoverBytes) {
+                // A single read may come back short; a truncated image would
+                // fail to decode and leave the placeholder up.
+                cover.reserve(static_cast<std::size_t>(size));
                 Buffer buffer{static_cast<std::uint32_t>(size)};
-                const auto read = co_await stream.ReadAsync(buffer, static_cast<std::uint32_t>(size), InputStreamOptions::None);
-                cover.assign(read.data(), read.data() + read.Length());
+                while (cover.size() < size) {
+                    const auto want = static_cast<std::uint32_t>(size - cover.size());
+                    const auto read = co_await stream.ReadAsync(buffer, want, InputStreamOptions::None);
+                    if (read.Length() == 0) {
+                        break;
+                    }
+                    cover.insert(cover.end(), read.data(), read.data() + read.Length());
+                }
+                if (cover.size() < size) {
+                    log::warn("SMTC artwork short read: {} of {} bytes", cover.size(), size);
+                    cover.clear();
+                }
             }
         }
 
         bool coverChanged = false;
+        const bool publishedEmpty = cover.empty();
         {
             std::scoped_lock lock{shared->mutex};
             // Only artwork read for the current text may settle it.
@@ -172,7 +186,8 @@ winrt::fire_and_forget refreshProperties(std::weak_ptr<Shared> weak) {
             }
         }
         if (coverChanged) {
-            log::info("SMTC properties #{}: cover after {} ms", generation, elapsedMs());
+            log::info("SMTC properties #{}: {} after {} ms", generation, publishedEmpty ? "no cover" : "cover",
+                      elapsedMs());
             shared->notify();
         }
     } catch (const winrt::hresult_error& e) {

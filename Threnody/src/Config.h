@@ -149,6 +149,10 @@ inline constexpr wchar_t settingsCjkFontFile[] = L"YuGothM.ttc";  // Merged into
 inline constexpr unsigned short spotifyRedirectPort = 38417;
 inline constexpr wchar_t spotifyRedirectUri[] = L"http://127.0.0.1:38417/callback";
 inline constexpr wchar_t spotifyScopes[] = L"user-read-currently-playing user-read-playback-state";
+// After a quick skip the Web API can still report the previous track. Asking
+// again on the 2 s health tick, this many times per track, lets exact links
+// and the artwork fallback catch up.
+inline constexpr unsigned spotifyLinksRetryLimit = 3;
 
 // How often the taskbar is re-checked for rebuilds and layout changes.
 inline constexpr unsigned taskbarHealthCheckMs = 2000;

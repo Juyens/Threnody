@@ -54,6 +54,9 @@ private:
     void syncWithTaskbar(bool force);
     void repaintWidget();
     void onMediaChanged();
+    void setCover(std::vector<std::uint8_t> image);
+    bool applyArtworkFallback();
+    void refreshStaleLinks();
     void updateAccentFromCover();
     void onWidgetClick(POINT position);
     void onPointerMove(POINT position);
@@ -110,11 +113,15 @@ private:
 
     std::unique_ptr<media::MediaSession> m_media;
     bool m_sessionAvailable{false};
+    std::uint32_t m_smtcCoverVersion{};  // Last NowPlaying::coverVersion applied.
+    bool m_smtcCoverSettled{false};      // SMTC has answered for the current track's artwork.
     shell::SpotifyWindowToggle m_spotifyWindow;
 
     std::unique_ptr<spotify::SpotifyClient> m_spotify;
     spotify::Credentials m_savedCredentials;
     std::optional<spotify::TrackLinks> m_links;
+    unsigned m_linksRetries{};
+    std::wstring m_artworkRequested;  // Fallback URL already asked for this track.
 
     audio::ProcessLoopbackCapture m_capture;
     ULONGLONG m_lastCaptureAttempt{};

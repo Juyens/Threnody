@@ -226,6 +226,7 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 if (m_media) {
                     m_media->poll();
                 }
+                refreshStaleLinks();
             } else if (wParam == spectrumTimerId) {
                 onSpectrumFrame();
             } else if (wParam == hoverTimerId) {
@@ -363,7 +364,6 @@ void Application::onMediaChanged() {
     const bool textChanged = now.available ? (m_model.title != now.title || m_model.artist != now.artist)
                                            : (m_model.title != strings().placeholderTitle.wide);
     const bool sessionChanged = m_sessionAvailable != now.available;
-    const bool coverChanged = m_model.coverVersion != now.coverVersion;
     m_sessionAvailable = now.available;
     const bool smtcPlaying = now.available && now.playing;
     if (smtcPlaying != m_smtcPlaying) {
@@ -386,23 +386,20 @@ void Application::onMediaChanged() {
     if (now.available) {
         m_model.title = now.title;
         m_model.artist = now.artist;
+        m_smtcCoverSettled = !now.coverPending;
         if (now.coverPending) {
             // New track, old artwork: show the placeholder until the new one lands.
-            if (!m_model.coverImage.empty()) {
-                m_model.coverImage.clear();
-                m_model.accent = config::defaultAccentColor;
-            }
-        } else if (coverChanged) {
-            m_model.coverImage = now.cover;
-            m_model.coverVersion = now.coverVersion;
-            updateAccentFromCover();
+            setCover({});
+        } else if (m_smtcCoverVersion != now.coverVersion) {
+            m_smtcCoverVersion = now.coverVersion;
+            setCover(now.cover);
         }
     } else {
         m_model.title = strings().placeholderTitle.wide;
         m_model.artist = strings().placeholderArtist.wide;
-        m_model.coverImage.clear();
-        m_model.coverVersion = now.coverVersion;
-        m_model.accent = config::defaultAccentColor;
+        m_smtcCoverSettled = false;
+        m_smtcCoverVersion = now.coverVersion;
+        setCover({});
     }
 
     if (textChanged) {
@@ -416,13 +413,62 @@ void Application::onMediaChanged() {
     if (textChanged) {
         // Exact links belong to the previous track until the API answers.
         m_links.reset();
+        m_linksRetries = 0;
+        m_artworkRequested.clear();
         if (now.available && m_spotify && m_spotify->connected()) {
             m_spotify->requestNowPlaying();
         }
+    }
+    applyArtworkFallback();
+    if (textChanged) {
         syncWithTaskbar(true);  // Width may change with the text.
     } else {
         repaintWidget();
     }
+}
+
+// The model's cover version is the renderer's cache key, so it moves with
+// every change of bytes whichever source they come from.
+void Application::setCover(std::vector<std::uint8_t> image) {
+    if (image.empty() && m_model.coverImage.empty()) {
+        return;
+    }
+    m_model.coverImage = std::move(image);
+    ++m_model.coverVersion;
+    updateAccentFromCover();
+}
+
+// SMTC is the artwork source, but Spotify now and then publishes a track with
+// no thumbnail and never fills it in. With the Web API connected, the album
+// art it reports stands in. Returns true when the cover changed.
+bool Application::applyArtworkFallback() {
+    if (!m_spotify || !m_smtcCoverSettled || !m_model.coverImage.empty() || !linksMatchCurrentTrack() ||
+        m_links->artworkUrl.empty()) {
+        return false;
+    }
+    if (std::optional<spotify::Artwork> artwork = m_spotify->artwork(); artwork && artwork->url == m_links->artworkUrl) {
+        log::info("cover from the Web API ({} bytes)", artwork->bytes.size());
+        setCover(std::move(artwork->bytes));
+        return true;
+    }
+    if (m_artworkRequested != m_links->artworkUrl) {
+        m_artworkRequested = m_links->artworkUrl;
+        log::info("SMTC has no cover; fetching album art from the Web API");
+        m_spotify->requestArtwork(m_links->artworkUrl);
+    }
+    return false;
+}
+
+// The Web API can lag SMTC by a track after a quick skip; ask again so exact
+// links and the artwork fallback catch up.
+void Application::refreshStaleLinks() {
+    if (!m_spotify || !m_spotify->connected() || !m_sessionAvailable || !m_links || linksMatchCurrentTrack() ||
+        m_linksRetries >= config::spotifyLinksRetryLimit) {
+        return;
+    }
+    ++m_linksRetries;
+    m_links.reset();
+    m_spotify->requestNowPlaying();
 }
 
 void Application::updateAccentFromCover() {
@@ -701,6 +747,9 @@ void Application::onSpotifyChanged() {
             } else {
                 m_spotify->requestNowPlaying();
             }
+        }
+        if (applyArtworkFallback()) {
+            repaintWidget();
         }
     }
     publishSpotifyStatus();
