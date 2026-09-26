@@ -12,6 +12,9 @@ Zone hitTest(const render::WidgetLayout& layout, float x, float y) noexcept {
     if (layout.artist.contains(x, y)) {
         return Zone::Artist;
     }
+    if (layout.shuffle.contains(x, y)) {
+        return Zone::Shuffle;
+    }
     if (layout.previous.contains(x, y)) {
         return Zone::Previous;
     }
@@ -20,6 +23,9 @@ Zone hitTest(const render::WidgetLayout& layout, float x, float y) noexcept {
     }
     if (layout.next.contains(x, y)) {
         return Zone::Next;
+    }
+    if (layout.volume.contains(x, y)) {
+        return Zone::Volume;
     }
     // The visualiser zone is generous: the whole column, not just the bars.
     if (x >= layout.visualizer.left && x < layout.visualizer.right && y >= 0.0f && y < layout.height) {

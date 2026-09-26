@@ -21,6 +21,13 @@ struct WidgetModel {
     std::wstring artist;
     bool playing{false};
 
+    // Shuffle as Spotify reports it; empty while it offers no control, which
+    // draws the button dimmed.
+    std::optional<bool> shuffle;
+    // Spotify's volume in the Windows mixer, 0 when muted; empty when it has
+    // no audio session.
+    std::optional<float> volume;
+
     // Encoded image (PNG/JPEG bytes) or empty for the placeholder. The
     // version changes whenever the bytes do, so the renderer can cache the
     // decoded bitmap without comparing buffers.

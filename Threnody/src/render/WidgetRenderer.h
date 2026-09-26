@@ -7,6 +7,7 @@
 #include "render/WidgetModel.h"
 #include "util/Result.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -79,6 +80,8 @@ private:
     winrt::com_ptr<ID2D1PathGeometry> m_playGlyph;
     winrt::com_ptr<ID2D1PathGeometry> m_previousGlyph;
     winrt::com_ptr<ID2D1PathGeometry> m_nextGlyph;
+    winrt::com_ptr<ID2D1PathGeometry> m_shuffleIcon;
+    std::array<winrt::com_ptr<ID2D1PathGeometry>, 4> m_speakerIcons;  // Muted, low, mid, high.
 
     TextLine m_title;
     TextLine m_artist;

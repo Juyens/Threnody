@@ -77,11 +77,18 @@ void refreshPlayback(const std::shared_ptr<Shared>& shared) {
     try {
         const auto info = session.GetPlaybackInfo();
         const bool playing = info.PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
+        std::optional<bool> shuffle;
+        if (info.Controls().IsShuffleEnabled()) {
+            if (const auto active = info.IsShuffleActive()) {
+                shuffle = active.Value();
+            }
+        }
         bool changed = false;
         {
             std::scoped_lock lock{shared->mutex};
-            changed = shared->state.playing != playing;
+            changed = shared->state.playing != playing || shared->state.shuffle != shuffle;
             shared->state.playing = playing;
+            shared->state.shuffle = shuffle;
         }
         if (changed) {
             shared->notify();
@@ -320,6 +327,15 @@ winrt::fire_and_forget sendCommand(GlobalSystemMediaTransportControlsSession ses
     }
 }
 
+winrt::fire_and_forget sendShuffle(GlobalSystemMediaTransportControlsSession session, bool active) {
+    try {
+        const bool accepted = co_await session.TryChangeShuffleActiveAsync(active);
+        log::info("SMTC shuffle {} {}", active ? "on" : "off", accepted ? "accepted" : "rejected");
+    } catch (const winrt::hresult_error& e) {
+        log::warn("SMTC shuffle failed: {}", describe(e));
+    }
+}
+
 }  // namespace
 
 MediaSession::MediaSession(ChangeHandler onChanged) : m_shared(std::make_shared<Shared>()) {
@@ -367,6 +383,17 @@ void MediaSession::send(TransportCommand command) const {
     }
     if (session) {
         sendCommand(session, command);
+    }
+}
+
+void MediaSession::setShuffle(bool active) const {
+    GlobalSystemMediaTransportControlsSession session{nullptr};
+    {
+        std::scoped_lock lock{m_shared->mutex};
+        session = m_shared->session;
+    }
+    if (session) {
+        sendShuffle(session, active);
     }
 }
 

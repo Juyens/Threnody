@@ -35,7 +35,9 @@ Every part of it is clickable:
 | **Cover** or background | Raises Spotify, or minimises it if already in front |
 | **Title** | Opens the track in Spotify |
 | **Artist** | Opens the artist in Spotify |
+| **Shuffle** | Turns shuffle on or off (green with a dot while on) |
 | **⏮ ⏯ ⏭** | Previous, play/pause, next |
+| **Speaker** | Opens a volume slider for Spotify alone: drag, scroll or use the arrow keys; the speaker in it mutes |
 | **Spectrum** | Cycles the colour mode |
 
 ## The spectrum is real

@@ -141,8 +141,9 @@ void testLayout() {
     const WidgetLayout wide = WidgetLayout::compute(40.0f, 900.0f, 16.0f, 30.0f, 14.0f);
     check(narrow.width < wide.width, "wider text widens the widget");
     check(wide.width <= static_cast<float>(threnody::config::widgetMaxWidthDip), "width is capped");
-    check(narrow.cover.left < narrow.title.left && narrow.title.right <= narrow.previous.left &&
-              narrow.next.right <= narrow.visualizer.left,
+    check(narrow.cover.left < narrow.title.left && narrow.title.right <= narrow.shuffle.left &&
+              narrow.shuffle.right <= narrow.previous.left && narrow.next.right <= narrow.volume.left &&
+              narrow.volume.right <= narrow.visualizer.left,
           "zones are laid out left to right");
     check(wide.title.width() <= threnody::config::textMaxWidthDip, "text column is clamped");
 }

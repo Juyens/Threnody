@@ -2,6 +2,8 @@
 
 #include "Config.h"
 #include "color/ColorSpace.h"
+#include "render/Icons.h"
+#include "render/SvgPath.h"
 
 #include <algorithm>
 #include <cmath>
@@ -102,6 +104,21 @@ Result<void> WidgetRenderer::ensureGlyphs() {
         return geometry.error();
     }
     m_nextGlyph = std::move(geometry.value());
+
+    geometry = pathGeometryFromSvg(*m_graphics.d2d, icons::shuffle);
+    if (!geometry) {
+        return geometry.error();
+    }
+    m_shuffleIcon = std::move(geometry.value());
+
+    const std::array speakers{icons::speakerMute, icons::speaker0, icons::speaker1, icons::speaker2};
+    for (std::size_t i = 0; i < speakers.size(); ++i) {
+        geometry = pathGeometryFromSvg(*m_graphics.d2d, speakers[i]);
+        if (!geometry) {
+            return geometry.error();
+        }
+        m_speakerIcons[i] = std::move(geometry.value());
+    }
     return {};
 }
 
@@ -343,14 +360,16 @@ void WidgetRenderer::drawHoverHighlight(const WidgetLayout& layout, const Widget
     }
     RectF area;
     switch (*model.hover) {
+        case Zone::Shuffle: area = layout.shuffle; break;
         case Zone::Previous: area = layout.previous; break;
         case Zone::PlayPause: area = layout.playPause; break;
         case Zone::Next: area = layout.next; break;
+        case Zone::Volume: area = layout.volume; break;
         case Zone::Title: area = layout.title; break;
         case Zone::Artist: area = layout.artist; break;
         default: return;
     }
-    const bool control = *model.hover == Zone::Previous || *model.hover == Zone::PlayPause || *model.hover == Zone::Next;
+    const bool control = *model.hover != Zone::Title && *model.hover != Zone::Artist;
     if (control) {
         area.top += config::controlHoverInsetDip;
         area.bottom -= config::controlHoverInsetDip;
@@ -438,6 +457,36 @@ void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel&
 
     place(layout.next);
     m_target->FillGeometry(m_nextGlyph.get(), m_brush.get());
+
+    // Fluent icons live in a 20-unit box; scale it to the icon size.
+    constexpr float icon = config::controlIconSizeDip;
+    const auto placeIcon = [&](const RectF& zone) {
+        const float x = zone.left + (zone.width() - icon) / 2.0f;
+        const float y = zone.top + (zone.height() - icon) / 2.0f;
+        const float scale = icon / icons::canvasUnits;
+        m_target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) * D2D1::Matrix3x2F::Translation(x, y));
+        return D2D1_POINT_2F{x + icon / 2.0f, y + icon};
+    };
+
+    // Shuffle: green with a dot underneath while on, as in Spotify. The icon
+    // stays in line with the other controls; the arrows end well above the
+    // box's bottom edge, so the dot fits just under them.
+    const bool shuffleOn = model.shuffle.value_or(false);
+    fill(!model.shuffle ? config::controlDisabledColor : shuffleOn ? config::controlActiveColor : config::controlColor);
+    const D2D1_POINT_2F below = placeIcon(layout.shuffle);
+    m_target->FillGeometry(m_shuffleIcon.get(), m_brush.get());
+    if (shuffleOn) {
+        m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+        const float r = config::controlActiveDotDip / 2.0f;
+        m_target->FillEllipse(D2D1::Ellipse({below.x, below.y + r - 1.0f}, r, r), m_brush.get());
+    }
+
+    // Volume: waves follow the level, a cross when muted or at zero.
+    const float volume = model.volume.value_or(1.0f);
+    const std::size_t speaker = volume <= 0.0f ? 0 : volume < 0.34f ? 1 : volume < 0.67f ? 2 : 3;
+    fill(model.volume ? config::controlColor : config::controlDisabledColor);
+    placeIcon(layout.volume);
+    m_target->FillGeometry(m_speakerIcons[speaker].get(), m_brush.get());
 
     m_target->SetTransform(D2D1::Matrix3x2F::Identity());
 }

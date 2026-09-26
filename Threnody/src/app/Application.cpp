@@ -227,6 +227,8 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                     m_media->poll();
                 }
                 refreshStaleLinks();
+                syncShuffle(m_media ? m_media->snapshot().shuffle : std::nullopt);
+                refreshVolume();
             } else if (wParam == spectrumTimerId) {
                 onSpectrumFrame();
             } else if (wParam == hoverTimerId) {
@@ -383,6 +385,8 @@ void Application::onMediaChanged() {
         }
     }
 
+    syncShuffle(now.shuffle);
+
     if (now.available) {
         m_model.title = now.title;
         m_model.artist = now.artist;
@@ -508,6 +512,9 @@ void Application::onWidgetClick(POINT position) {
         case interaction::Zone::Artist:
             openTrackOrArtist(true);
             break;
+        case interaction::Zone::Shuffle:
+            toggleShuffle();
+            break;
         case interaction::Zone::Previous:
             m_media->send(media::TransportCommand::Previous);
             m_lastTextChangeTick = GetTickCount64();  // A loading gap is coming; do not read it as a pause.
@@ -532,9 +539,108 @@ void Application::onWidgetClick(POINT position) {
             m_media->send(media::TransportCommand::Next);
             m_lastTextChangeTick = GetTickCount64();
             break;
+        case interaction::Zone::Volume:
+            toggleVolumeFlyout();
+            break;
         case interaction::Zone::Visualizer:
             toggleColorMode();
             break;
+    }
+}
+
+void Application::toggleShuffle() {
+    if (!m_model.shuffle) {
+        return;  // Spotify offers no shuffle control right now.
+    }
+    const bool active = !*m_model.shuffle;
+    m_media->setShuffle(active);
+    m_model.shuffle = active;
+    m_shuffleHoldUntil = GetTickCount64() + config::shuffleConfirmHoldMs;
+    repaintWidget();
+}
+
+// Takes SMTC's shuffle state, except that right after a click a contrary
+// report is most likely Spotify's stale one; it wins only once the hold ends.
+void Application::syncShuffle(const std::optional<bool>& reported) {
+    if (reported == m_model.shuffle) {
+        m_shuffleHoldUntil = 0;
+        return;
+    }
+    if (reported && GetTickCount64() < m_shuffleHoldUntil) {
+        return;
+    }
+    m_shuffleHoldUntil = 0;
+    m_model.shuffle = reported;
+    repaintWidget();
+}
+
+void Application::toggleVolumeFlyout() {
+    if (!m_volumeFlyout) {
+        Result<std::unique_ptr<overlay::VolumeFlyout>> flyout = overlay::VolumeFlyout::create(
+            m_instance, {
+                            .onLevel =
+                                [this](float level) {
+                                    if (m_volume.read().value_or(audio::VolumeState{}).muted) {
+                                        m_volume.setMuted(false);
+                                    }
+                                    m_volume.setLevel(level);
+                                    showVolume(audio::VolumeState{.level = level});
+                                },
+                            .onToggleMute =
+                                [this] {
+                                    if (const std::optional<audio::VolumeState> state = m_volume.read()) {
+                                        m_volume.setMuted(!state->muted);
+                                    }
+                                    showVolume(m_volume.read());
+                                },
+                        });
+        if (!flyout) {
+            log::error("volume flyout unavailable: {}", flyout.error().describe());
+            return;
+        }
+        m_volumeFlyout = std::move(flyout.value());
+    }
+    if (m_volumeFlyout->visible()) {
+        m_volumeFlyout->close();
+        return;
+    }
+    if (m_volumeFlyout->justClosed() || !m_layout) {
+        return;  // This click is what closed it.
+    }
+
+    m_volume.refresh();
+    const std::optional<audio::VolumeState> state = m_volume.read();
+    showVolume(state);
+    if (!state) {
+        log::info("volume: Spotify has no audio session");
+        return;
+    }
+    RECT widget{};
+    GetWindowRect(m_widget.hwnd(), &widget);
+    const UINT dpi = m_layout->dpi;
+    const RECT anchor{
+        .left = widget.left + dipToPixels(m_widgetLayout.volume.left, dpi),
+        .top = widget.top,
+        .right = widget.left + dipToPixels(m_widgetLayout.volume.right, dpi),
+        .bottom = widget.bottom,
+    };
+    m_volumeFlyout->open(anchor, dpi, state->level, state->muted);
+}
+
+void Application::refreshVolume() {
+    m_volume.refresh();
+    showVolume(m_volume.read());
+}
+
+void Application::showVolume(const std::optional<audio::VolumeState>& state) {
+    const std::optional<float> shown =
+        state ? std::optional<float>{state->muted ? 0.0f : state->level} : std::nullopt;
+    if (state && m_volumeFlyout) {
+        m_volumeFlyout->setState(state->level, state->muted);
+    }
+    if (shown != m_model.volume) {
+        m_model.volume = shown;
+        repaintWidget();
     }
 }
 

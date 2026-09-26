@@ -11,7 +11,7 @@ WidgetLayout WidgetLayout::compute(float height, float titleWidth, float titleHe
     using namespace config;
 
     const float coverSize = height - 2.0f * widgetPaddingDip;
-    const float controlsWidth = 3.0f * controlButtonWidthDip;
+    const float controlsWidth = 5.0f * controlButtonWidthDip;
     const float visualizerWidth =
         spectrumBarCount * spectrumBarWidthDip + (spectrumBarCount - 1) * spectrumBarGapDip;
 
@@ -34,11 +34,15 @@ WidgetLayout WidgetLayout::compute(float height, float titleWidth, float titleHe
     layout.artist = {x, layout.title.bottom + textLineGapDip, x + textWidth, layout.title.bottom + textLineGapDip + artistHeight};
     x += textWidth + widgetGapDip;
 
+    layout.shuffle = {x, 0.0f, x + controlButtonWidthDip, height};
+    x += controlButtonWidthDip;
     layout.previous = {x, 0.0f, x + controlButtonWidthDip, height};
     x += controlButtonWidthDip;
     layout.playPause = {x, 0.0f, x + controlButtonWidthDip, height};
     x += controlButtonWidthDip;
     layout.next = {x, 0.0f, x + controlButtonWidthDip, height};
+    x += controlButtonWidthDip;
+    layout.volume = {x, 0.0f, x + controlButtonWidthDip, height};
     x += controlButtonWidthDip + widgetGapDip;
 
     layout.visualizer = {x, widgetPaddingDip, x + visualizerWidth, height - widgetPaddingDip};

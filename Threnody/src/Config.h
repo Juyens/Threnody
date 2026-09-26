@@ -23,6 +23,8 @@ inline constexpr float textMaxWidthDip = 170.0f;
 inline constexpr float textLineGapDip = 1.0f;
 inline constexpr float controlButtonWidthDip = 22.0f;
 inline constexpr float controlGlyphSizeDip = 10.0f;
+inline constexpr float controlIconSizeDip = 15.0f;  // Shuffle and volume: Fluent icons, 20-unit box.
+inline constexpr float controlActiveDotDip = 3.0f;  // Dot under an active toggle, like Spotify's.
 
 // Spectrum visualiser: geometry.
 inline constexpr int spectrumBarCount = 13;
@@ -107,6 +109,8 @@ inline constexpr Color coverPlaceholderColor{1.0f, 1.0f, 1.0f, 0.12f};
 inline constexpr Color titleColor{1.0f, 1.0f, 1.0f, 0.95f};
 inline constexpr Color artistColor{1.0f, 1.0f, 1.0f, 0.60f};
 inline constexpr Color controlColor{1.0f, 1.0f, 1.0f, 0.90f};
+inline constexpr Color controlDisabledColor{1.0f, 1.0f, 1.0f, 0.35f};
+inline constexpr Color controlActiveColor{0.118f, 0.843f, 0.376f, 1.0f};  // Spotify green, #1ED760.
 inline constexpr Color defaultAccentColor{0.55f, 0.78f, 1.0f, 1.0f};
 
 // Lock-key overlay. Sizes and timings follow the reference flyout: a
@@ -134,6 +138,29 @@ inline constexpr unsigned lockOverlayStatusMs = 200;
 inline constexpr Color lockOverlayBackgroundColor{0.125f, 0.125f, 0.125f, 0.90f};
 inline constexpr Color lockOverlayBorderColor{1.0f, 1.0f, 1.0f, 0.09f};
 inline constexpr Color lockOverlayForegroundColor{1.0f, 1.0f, 1.0f, 1.0f};
+
+// Volume flyout: opens over the widget's volume button, like Spotify's own
+// slider. Changes Spotify's session volume in the Windows mixer.
+inline constexpr float volumeFlyoutWidthDip = 220.0f;
+inline constexpr float volumeFlyoutHeightDip = 44.0f;
+inline constexpr float volumeFlyoutGapDip = 8.0f;          // Between the flyout and the taskbar.
+inline constexpr float volumeFlyoutCornerRadiusDip = 8.0f;
+inline constexpr float volumeFlyoutIconZoneDip = 40.0f;    // Mute button at the left.
+inline constexpr float volumeFlyoutIconSizeDip = 18.0f;
+inline constexpr float volumeFlyoutValueZoneDip = 42.0f;   // Percentage at the right.
+inline constexpr float volumeFlyoutTrackHeightDip = 4.0f;
+inline constexpr float volumeFlyoutThumbRadiusDip = 6.0f;
+inline constexpr float volumeFlyoutFontSizeDip = 12.0f;
+inline constexpr float volumeStep = 0.05f;                 // Per wheel notch or arrow key.
+inline constexpr unsigned volumeFlyoutFadeMs = 120;
+inline constexpr Color volumeFlyoutBackgroundColor{0.125f, 0.125f, 0.125f, 0.96f};
+inline constexpr Color volumeFlyoutBorderColor{1.0f, 1.0f, 1.0f, 0.09f};
+inline constexpr Color volumeFlyoutTrackColor{1.0f, 1.0f, 1.0f, 0.25f};
+inline constexpr Color volumeFlyoutFillColor{1.0f, 1.0f, 1.0f, 0.95f};
+
+// SMTC reports Spotify's state seconds late. After a shuffle click the
+// widget shows the new state and ignores a contrary report for this long.
+inline constexpr unsigned shuffleConfirmHoldMs = 15000;
 
 // Settings window (Dear ImGui), client area in DIPs.
 inline constexpr int settingsWindowWidthDip = 460;
