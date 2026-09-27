@@ -166,7 +166,7 @@ Result<void> WidgetRenderer::ensureGlyphs() {
 
 Result<void> WidgetRenderer::updateTextLine(TextLine& line, const std::wstring& text, float maxWidth,
                                             IDWriteTextFormat& format) {
-    if (line.layout && line.text == text && line.maxWidth == maxWidth) {
+    if (line.layout && line.text == text && line.maxWidth == maxWidth && line.format == &format) {
         return {};
     }
     winrt::com_ptr<IDWriteTextLayout> layout;
@@ -180,30 +180,59 @@ Result<void> WidgetRenderer::updateTextLine(TextLine& line, const std::wstring& 
 
     line.text = text;
     line.maxWidth = maxWidth;
+    line.format = &format;
     line.layout = std::move(layout);
     line.metrics = metrics;
     return {};
 }
 
-Result<WidgetLayout> WidgetRenderer::layout(const WidgetModel& model, float heightDip) {
-    // New text: keep the old lines around to slide them out.
+// New text: keep the old lines around to slide them out.
+void WidgetRenderer::noteTextChange(const WidgetModel& model) {
     if (m_title.layout && (model.title != m_title.text || model.artist != m_artist.text)) {
         m_titleFrom = m_title;
         m_artistFrom = m_artist;
         m_textSlideStart = GetTickCount64();
     }
+}
 
-    // Measure at unlimited width first, lay out, then rebuild the layouts at
-    // the width they actually get so trimming applies. The unlimited ones are
-    // kept for scrolling.
-    if (const Result<void> r = updateTextLine(m_title, model.title, measureWidth, m_fonts.title()); !r) {
-        return r.error();
+// Lays the text out at unlimited width: the natural size, for measuring and
+// for scrolling. Callers then rebuild it at the width it actually gets.
+Result<void> WidgetRenderer::measureText(const WidgetModel& model, IDWriteTextFormat& title, IDWriteTextFormat& artist) {
+    if (const Result<void> r = updateTextLine(m_title, model.title, measureWidth, title); !r) {
+        return r;
     }
-    if (const Result<void> r = updateTextLine(m_artist, model.artist, measureWidth, m_fonts.artist()); !r) {
-        return r.error();
+    if (const Result<void> r = updateTextLine(m_artist, model.artist, measureWidth, artist); !r) {
+        return r;
     }
     m_titleNatural = m_title.layout;
     m_artistNatural = m_artist.layout;
+    return {};
+}
+
+Result<WidgetLayout> WidgetRenderer::layoutCard(const WidgetModel& model, float widthDip, float heightDip) {
+    noteTextChange(model);
+    if (const Result<void> r = measureText(model, m_fonts.cardTitle(), m_fonts.cardArtist()); !r) {
+        return r.error();
+    }
+    const WidgetLayout result =
+        WidgetLayout::computeCard(widthDip, heightDip, m_title.metrics.height, m_artist.metrics.height);
+    if (const Result<void> r = updateTextLine(m_title, model.title, result.title.width(), m_fonts.cardTitle()); !r) {
+        return r.error();
+    }
+    if (const Result<void> r = updateTextLine(m_artist, model.artist, result.artist.width(), m_fonts.cardArtist());
+        !r) {
+        return r.error();
+    }
+    return result;
+}
+
+Result<WidgetLayout> WidgetRenderer::layout(const WidgetModel& model, float heightDip) {
+    noteTextChange(model);
+    // Measure at unlimited width first, lay out, then rebuild the layouts at
+    // the width they actually get so trimming applies.
+    if (const Result<void> r = measureText(model, m_fonts.title(), m_fonts.artist()); !r) {
+        return r.error();
+    }
 
     const WidgetLayout result = WidgetLayout::compute(
         heightDip, std::ceil(m_title.metrics.widthIncludingTrailingWhitespace), m_title.metrics.height,
@@ -530,8 +559,8 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
     const float hover = eased(model.hoverProgress);
     const D2D1_ROUNDED_RECT shape{
         .rect = {0.0f, 0.0f, layout.width, layout.height},
-        .radiusX = config::backgroundCornerRadiusDip,
-        .radiusY = config::backgroundCornerRadiusDip,
+        .radiusX = layout.cornerRadius,
+        .radiusY = layout.cornerRadius,
     };
     fill(model.floating ? mix(config::floatingBackgroundColor, config::floatingHoverBackgroundColor, hover)
                         : mix(config::backgroundColor, config::hoverBackgroundColor, hover));
@@ -542,8 +571,8 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
 
     const D2D1_ROUNDED_RECT border{
         .rect = {0.5f, 0.5f, layout.width - 0.5f, layout.height - 0.5f},
-        .radiusX = config::backgroundCornerRadiusDip,
-        .radiusY = config::backgroundCornerRadiusDip,
+        .radiusX = layout.cornerRadius,
+        .radiusY = layout.cornerRadius,
     };
     fill(model.floating ? mix(config::floatingBorderColor, config::floatingHoverBorderColor, hover)
                         : mix(config::backgroundBorderColor, config::hoverBorderColor, hover));
@@ -585,11 +614,11 @@ void WidgetRenderer::drawPulse(const WidgetLayout& layout, const WidgetModel& mo
     const float inset = config::pulseBorderWidthDip / 2.0f;
     fill(color.withAlpha(config::pulseTintAlpha * pulse));
     m_target->FillRoundedRectangle(
-        {{0.0f, 0.0f, layout.width, layout.height}, config::backgroundCornerRadiusDip, config::backgroundCornerRadiusDip},
+        {{0.0f, 0.0f, layout.width, layout.height}, layout.cornerRadius, layout.cornerRadius},
         m_brush.get());
     fill(color.withAlpha(config::pulseBorderAlpha * pulse));
     m_target->DrawRoundedRectangle({{inset, inset, layout.width - inset, layout.height - inset},
-                                    config::backgroundCornerRadiusDip, config::backgroundCornerRadiusDip},
+                                    layout.cornerRadius, layout.cornerRadius},
                                    m_brush.get(), config::pulseBorderWidthDip);
 }
 
@@ -628,8 +657,8 @@ void WidgetRenderer::drawHoverHighlight(const WidgetLayout& layout, const Widget
 void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& model) {
     const D2D1_ROUNDED_RECT shape{
         .rect = toD2D(layout.cover),
-        .radiusX = config::coverCornerRadiusDip,
-        .radiusY = config::coverCornerRadiusDip,
+        .radiusX = layout.coverCornerRadius,
+        .radiusY = layout.coverCornerRadius,
     };
 
     // A failure leaves a bitmap-less cover, drawn as the placeholder; logging
@@ -763,13 +792,14 @@ bool WidgetRenderer::animating(const WidgetModel& model, const WidgetLayout& lay
 }
 
 void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel& model) {
-    constexpr float s = config::controlGlyphSizeDip;
+    constexpr float s = config::controlGlyphSizeDip;  // Glyph space; scaled on placement.
+    const float k = layout.controlScale;
     fill(config::controlColor);
 
     const auto place = [&](const RectF& zone) {
-        const float x = zone.left + (zone.width() - s) / 2.0f;
-        const float y = zone.top + (zone.height() - s) / 2.0f;
-        m_target->SetTransform(D2D1::Matrix3x2F::Translation(x, y));
+        const float x = zone.left + (zone.width() - s * k) / 2.0f;
+        const float y = zone.top + (zone.height() - s * k) / 2.0f;
+        m_target->SetTransform(D2D1::Matrix3x2F::Scale(k, k) * D2D1::Matrix3x2F::Translation(x, y));
     };
 
     place(layout.previous);
@@ -788,7 +818,7 @@ void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel&
     m_target->FillGeometry(m_nextGlyph.get(), m_brush.get());
 
     // Fluent icons live in a 20-unit box; scale it to the icon size.
-    constexpr float icon = config::controlIconSizeDip;
+    const float icon = config::controlIconSizeDip * k;
     const auto placeIcon = [&](const RectF& zone) {
         const float x = zone.left + (zone.width() - icon) / 2.0f;
         const float y = zone.top + (zone.height() - icon) / 2.0f;
@@ -806,8 +836,8 @@ void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel&
     m_target->FillGeometry(m_shuffleIcon.get(), m_brush.get());
     if (shuffleOn) {
         m_target->SetTransform(D2D1::Matrix3x2F::Identity());
-        const float r = config::controlActiveDotDip / 2.0f;
-        m_target->FillEllipse(D2D1::Ellipse({below.x, below.y + r - 1.0f}, r, r), m_brush.get());
+        const float r = config::controlActiveDotDip * k / 2.0f;
+        m_target->FillEllipse(D2D1::Ellipse({below.x, below.y + r - k}, r, r), m_brush.get());
     }
 
     // Volume: waves follow the level, a cross when muted or at zero.
@@ -880,6 +910,12 @@ void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel&
         }
     }
 
+    // Bar and gap keep their proportions across the zone's width: the bar's
+    // natural size in the taskbar, wider in the card.
+    const float natural = spectrumBarCount * spectrumBarWidthDip + (spectrumBarCount - 1) * spectrumBarGapDip;
+    const float spread = zone.width() / natural;
+    const float barWidth = spectrumBarWidthDip * spread;
+    const float radius = std::min(barWidth / 2.0f, 1.0f * spread);
     float x = zone.left;
     for (int i = 0; i < spectrumBarCount; ++i) {
         const Color color = barColor(model, i);
@@ -887,12 +923,12 @@ void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel&
         const float value = std::clamp(model.spectrum[static_cast<std::size_t>(i)], 0.0f, 1.0f);
         const float height = spectrumBaselineDip + value * (maxHeight - spectrumBaselineDip);
         const D2D1_ROUNDED_RECT bar{
-            .rect = {x, zone.bottom - height, x + spectrumBarWidthDip, zone.bottom},
-            .radiusX = 1.0f,
-            .radiusY = 1.0f,
+            .rect = {x, zone.bottom - height, x + barWidth, zone.bottom},
+            .radiusX = radius,
+            .radiusY = radius,
         };
         m_target->FillRoundedRectangle(bar, m_brush.get());
-        x += spectrumBarWidthDip + spectrumBarGapDip;
+        x += (spectrumBarWidthDip + spectrumBarGapDip) * spread;
     }
 }
 

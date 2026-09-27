@@ -33,6 +33,9 @@ struct Settings {
     bool floating{false};
     int floatingX{};
     int floatingY{};
+    // Stretched into a card: its size in DIPs; zero while it is a bar.
+    int cardWidthDip{};
+    int cardHeightDip{};
 
     // Spotify Web API (PKCE). Empty until the user connects in the settings
     // window; the refresh token is stored encrypted with DPAPI, base64 here.

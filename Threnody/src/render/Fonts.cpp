@@ -127,6 +127,20 @@ Result<Fonts> Fonts::create(IDWriteFactory2& factory) {
     }
     fonts.m_artist = std::move(artist.value());
 
+    Result<winrt::com_ptr<IDWriteTextFormat>> cardTitle = createFormat(
+        factory, *fonts.m_fallback, config::cardTitleFontSizeDip, DWRITE_FONT_WEIGHT_SEMI_BOLD, "card title");
+    if (!cardTitle) {
+        return cardTitle.error();
+    }
+    fonts.m_cardTitle = std::move(cardTitle.value());
+
+    Result<winrt::com_ptr<IDWriteTextFormat>> cardArtist = createFormat(
+        factory, *fonts.m_fallback, config::cardArtistFontSizeDip, DWRITE_FONT_WEIGHT_NORMAL, "card artist");
+    if (!cardArtist) {
+        return cardArtist.error();
+    }
+    fonts.m_cardArtist = std::move(cardArtist.value());
+
     return fonts;
 }
 

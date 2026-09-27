@@ -147,6 +147,16 @@ void testLayout() {
               narrow.volume.right <= narrow.visualizer.left,
           "zones are laid out left to right");
     check(wide.title.width() <= threnody::config::textMaxWidthDip, "text column is clamped");
+
+    const WidgetLayout card = WidgetLayout::computeCard(280.0f, 420.0f, 22.0f, 18.0f);
+    check(card.card && card.width == 280.0f && card.height == 420.0f, "card keeps its size");
+    check(card.cover.width() == card.cover.height() && card.cover.width() > 150.0f, "card cover is a large square");
+    check(card.cover.bottom <= card.title.top && card.artist.bottom <= card.previous.top &&
+              card.volume.bottom <= card.visualizer.top && card.visualizer.bottom <= card.height,
+          "card stacks cover, text, controls and visualiser");
+    const WidgetLayout tiny = WidgetLayout::computeCard(50.0f, 50.0f, 22.0f, 18.0f);
+    check(tiny.width >= threnody::config::cardMinWidthDip && tiny.height >= threnody::config::cardMinHeightDip,
+          "card has a minimum size");
 }
 
 void testBeatDetector() {
@@ -215,6 +225,8 @@ void testSettingsRoundTrip() {
     original.floating = true;
     original.floatingX = -1200;
     original.floatingY = 340;
+    original.cardWidthDip = 280;
+    original.cardHeightDip = 420;
     original.spotifyClientId = "abc";
     original.spotifyRefreshTokenProtected = "sealed";
     check(settings::save(original, file).ok(), "settings save");

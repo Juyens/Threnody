@@ -27,8 +27,11 @@ Zone hitTest(const render::WidgetLayout& layout, float x, float y) noexcept {
     if (layout.volume.contains(x, y)) {
         return Zone::Volume;
     }
-    // The visualiser zone is generous: the whole column, not just the bars.
-    if (x >= layout.visualizer.left && x < layout.visualizer.right && y >= 0.0f && y < layout.height) {
+    // In the bar the visualiser zone is generous: the whole column, not just
+    // the bars. The card has other things above it.
+    const float top = layout.card ? layout.visualizer.top : 0.0f;
+    const float bottom = layout.card ? layout.visualizer.bottom : layout.height;
+    if (x >= layout.visualizer.left && x < layout.visualizer.right && y >= top && y < bottom) {
         return Zone::Visualizer;
     }
     return Zone::Background;

@@ -40,6 +40,8 @@ json toJson(const Settings& s) {
              {"floating", s.floating},
              {"x", s.floatingX},
              {"y", s.floatingY},
+             {"cardWidth", s.cardWidthDip},
+             {"cardHeight", s.cardHeightDip},
          }},
         {"spotify",
          {
@@ -66,6 +68,8 @@ Settings fromJson(const json& j) {
         s.floating = widget->value("floating", s.floating);
         s.floatingX = widget->value("x", s.floatingX);
         s.floatingY = widget->value("y", s.floatingY);
+        s.cardWidthDip = widget->value("cardWidth", s.cardWidthDip);
+        s.cardHeightDip = widget->value("cardHeight", s.cardHeightDip);
     }
     if (const auto spotify = j.find("spotify"); spotify != j.end() && spotify->is_object()) {
         s.spotifyClientId = spotify->value("clientId", s.spotifyClientId);

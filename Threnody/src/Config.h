@@ -103,6 +103,25 @@ inline constexpr float marqueeSpeedDipPerSecond = 30.0f;
 inline constexpr float marqueeGapDip = 36.0f;
 inline constexpr float marqueeFadeDip = 12.0f;
 
+// Card: a floating widget stretched taller than cardSnapHeightDip turns
+// into a vertical player card (cover on top, text, controls, visualiser)
+// that keeps whatever size it is given, down to the card minimum; shrunk back
+// below the snap height it returns to the bar. Edges within resizeEdgeDip of
+// a floating widget resize it.
+inline constexpr float cardSnapHeightDip = 110.0f;
+inline constexpr float cardMinWidthDip = 220.0f;
+inline constexpr float cardMinHeightDip = 300.0f;
+inline constexpr float cardMaxSideDip = 900.0f;
+inline constexpr float cardPaddingDip = 18.0f;
+inline constexpr float cardCornerRadiusDip = 14.0f;
+inline constexpr float cardCoverCornerRadiusDip = 10.0f;
+inline constexpr float cardGapDip = 14.0f;
+inline constexpr float cardControlsHeightDip = 40.0f;
+inline constexpr float cardControlMaxWidthDip = 56.0f;
+inline constexpr float cardControlScale = 1.5f;  // Glyphs and icons, relative to the bar's.
+inline constexpr float cardVisualizerHeightDip = 34.0f;
+inline constexpr float resizeEdgeDip = 7.0f;
+
 // Floating widget backdrop: a wash of the cover's colours, like the blurred
 // artwork behind Apple Music's player. A band across the middle of the
 // cover (taller than the panel's own proportion, so there is more colour to
@@ -140,6 +159,8 @@ inline constexpr wchar_t fontFamilyChinese[] = L"Microsoft YaHei UI";
 inline constexpr wchar_t fontFamilyKorean[] = L"Malgun Gothic";
 inline constexpr float titleFontSizeDip = 12.5f;
 inline constexpr float artistFontSizeDip = 11.0f;
+inline constexpr float cardTitleFontSizeDip = 17.0f;
+inline constexpr float cardArtistFontSizeDip = 13.5f;
 
 // Colours, straight alpha. Tuned for the dark Windows 11 taskbar.
 inline constexpr Color backgroundColor{1.0f, 1.0f, 1.0f, 0.07f};

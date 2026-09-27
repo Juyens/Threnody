@@ -41,6 +41,7 @@ constexpr UINT WM_THRENODY_TRAY = WM_APP + 4;
 constexpr UINT WM_THRENODY_SPOTIFY = WM_APP + 5;
 constexpr UINT WM_THRENODY_DRAG = WM_APP + 6;   // wParam, lParam: grab point in the widget
 constexpr UINT WM_THRENODY_WHEEL = WM_APP + 7;  // wParam: wheel delta (signed)
+constexpr UINT WM_THRENODY_RESIZE = WM_APP + 8;  // wParam: WidgetWindow::Edge mask
 
 // Shifts `rect` fully onto the work area of the monitor it is (mostly) on,
 // so a floating widget can never be left off-screen.
@@ -127,6 +128,9 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     // Posted: starting the drag recreates the window whose message is being handled.
     m_widget.onDragStart([messageWindow](POINT grab) {
         PostMessageW(messageWindow, WM_THRENODY_DRAG, static_cast<WPARAM>(grab.x), static_cast<LPARAM>(grab.y));
+    });
+    m_widget.onResizeStart([messageWindow](UINT edges) {
+        PostMessageW(messageWindow, WM_THRENODY_RESIZE, static_cast<WPARAM>(edges), 0);
     });
 
     m_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
@@ -280,6 +284,10 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             onWheel(static_cast<int>(static_cast<INT_PTR>(wParam)));
             return 0;
 
+        case WM_THRENODY_RESIZE:
+            beginResize(static_cast<UINT>(wParam));
+            return 0;
+
         case WM_THRENODY_DRAG:
             beginDrag(POINT{.x = static_cast<LONG>(wParam), .y = static_cast<LONG>(lParam)});
             return 0;
@@ -373,6 +381,7 @@ void Application::syncWithTaskbar(bool force) {
                 m_renderer->layout(m_model, pixelsToDip(heightPx, current->dpi));
             widgetLayout) {
             m_widgetLayout = widgetLayout.value();
+            m_barWidthDip = m_widgetLayout.width;
             widthPx = dipToPixels(m_widgetLayout.width, current->dpi);
         } else {
             log::error("{}", widgetLayout.error().describe());
@@ -406,42 +415,75 @@ float Application::floatingHeightDip() const {
     return pixelsToDip(heightPx, m_layout->dpi);
 }
 
-// Same size as in the taskbar, at the DPI of whatever monitor it is on.
-void Application::syncFloating() {
-    const float heightDip = floatingHeightDip();
+// Lays the floating widget out, as a bar the size it has in the taskbar or
+// as a card of the size the user gave it, at the DPI of its monitor. Returns
+// its size in pixels.
+SIZE Application::layoutFloating() {
     UINT dpi = m_widget.isFloating() ? GetDpiForWindow(m_widget.hwnd()) : 0;
     if (dpi == 0) {
         dpi = m_layout ? m_layout->dpi : 96;
     }
-    int widthPx = dipToPixels(static_cast<float>(config::widgetMaxWidthDip) / 2.0f, dpi);
+    m_widgetDpi = dpi;
+    const bool card = m_settings.cardWidthDip > 0 && m_settings.cardHeightDip > 0;
+    const float heightDip = card ? static_cast<float>(m_settings.cardHeightDip) : floatingHeightDip();
+    float widthDip = card ? static_cast<float>(m_settings.cardWidthDip) : config::widgetMaxWidthDip / 2.0f;
     if (m_renderer) {
-        if (Result<render::WidgetLayout> widgetLayout = m_renderer->layout(m_model, heightDip); widgetLayout) {
+        Result<render::WidgetLayout> widgetLayout = card ? m_renderer->layoutCard(m_model, widthDip, heightDip)
+                                                         : m_renderer->layout(m_model, heightDip);
+        if (widgetLayout) {
             m_widgetLayout = widgetLayout.value();
-            widthPx = dipToPixels(m_widgetLayout.width, dpi);
+            widthDip = m_widgetLayout.width;
+            if (!card) {
+                m_barWidthDip = widthDip;
+            }
         } else {
             log::error("{}", widgetLayout.error().describe());
         }
     }
+    return SIZE{.cx = dipToPixels(widthDip, dpi), .cy = dipToPixels(card ? m_widgetLayout.height : heightDip, dpi)};
+}
+
+// Where it was (or where the settings say), sized for its current content.
+void Application::syncFloating() {
+    const SIZE size = layoutFloating();
     RECT current{.left = m_settings.floatingX, .top = m_settings.floatingY};
     if (m_widget.isFloating()) {
         GetWindowRect(m_widget.hwnd(), &current);
     }
-    const RECT rect = keepOnScreen(
-        {current.left, current.top, current.left + widthPx, current.top + dipToPixels(heightDip, dpi)});
+    placeFloating(keepOnScreen({current.left, current.top, current.left + size.cx, current.top + size.cy}));
+}
 
+void Application::placeFloating(const RECT& rect) {
     if (!m_widget.isFloating()) {
         if (const Result<void> created = m_widget.makeFloating(rect); !created) {
             log::error("{}", created.error().describe());
             return;
         }
         log::info("widget floating at ({}, {}) {}x{} px, dpi {}", rect.left, rect.top, win32::width(rect),
-                  win32::height(rect), dpi);
+                  win32::height(rect), m_widgetDpi);
     } else if (!win32::sameRect(rect, m_widgetRect)) {
         m_widget.move(rect);
     }
     m_widgetRect = rect;
-    m_widgetDpi = dpi;
     repaintWidget();
+}
+
+// Pressed on an edge of the floating widget: the drag timer follows the
+// cursor and resizes from that edge, the opposite edges staying put.
+void Application::beginResize(UINT edges) {
+    if (m_drag || !m_widget.isFloating()) {
+        return;
+    }
+    if (m_volumeFlyout) {
+        m_volumeFlyout->close();
+    }
+    m_drag = Drag{.edges = edges};
+    GetWindowRect(m_widget.hwnd(), &m_drag->startRect);
+    GetCursorPos(&m_drag->startCursor);
+    m_wheelHook.reset();
+    m_peekHoverSince = 0;
+    updateQueuePeek();
+    SetTimer(m_messageWindow.get(), dragTimerId, config::dragFrameMs, nullptr);
 }
 
 // Where the widget would sit if dropped on the taskbar, in screen pixels.
@@ -449,7 +491,9 @@ std::optional<RECT> Application::dockSlot() const {
     if (!m_layout) {
         return std::nullopt;
     }
-    RECT slot = taskbar::placeWidget(*m_layout, dipToPixels(m_widgetLayout.width, m_layout->dpi));
+    const float widthDip = m_widgetLayout.card ? (m_barWidthDip > 0.0f ? m_barWidthDip : config::widgetMaxWidthDip / 2.0f)
+                                               : m_widgetLayout.width;
+    RECT slot = taskbar::placeWidget(*m_layout, dipToPixels(widthDip, m_layout->dpi));
     MapWindowPoints(m_layout->taskbar, nullptr, reinterpret_cast<POINT*>(&slot), 2);
     return slot;
 }
@@ -506,6 +550,37 @@ void Application::onDragFrame() {
         return;
     }
 
+    if (m_drag->edges != 0) {
+        // Stretched past the snap height it is a card of the size asked for
+        // (within limits); below it, the bar. Fixed edges stay where they were.
+        POINT cursor{};
+        GetCursorPos(&cursor);
+        const RECT& start = m_drag->startRect;
+        RECT wanted = start;
+        const LONG dx = cursor.x - m_drag->startCursor.x;
+        const LONG dy = cursor.y - m_drag->startCursor.y;
+        wanted.left += (m_drag->edges & taskbar::WidgetWindow::EdgeLeft) ? dx : 0;
+        wanted.right += (m_drag->edges & taskbar::WidgetWindow::EdgeRight) ? dx : 0;
+        wanted.top += (m_drag->edges & taskbar::WidgetWindow::EdgeTop) ? dy : 0;
+        wanted.bottom += (m_drag->edges & taskbar::WidgetWindow::EdgeBottom) ? dy : 0;
+        const float widthDip = pixelsToDip(win32::width(wanted), m_widgetDpi);
+        const float heightDip = pixelsToDip(win32::height(wanted), m_widgetDpi);
+        if (heightDip >= config::cardSnapHeightDip) {
+            m_settings.cardWidthDip = static_cast<int>(
+                std::lround(std::clamp(widthDip, config::cardMinWidthDip, config::cardMaxSideDip)));
+            m_settings.cardHeightDip = static_cast<int>(
+                std::lround(std::clamp(heightDip, config::cardMinHeightDip, config::cardMaxSideDip)));
+        } else {
+            m_settings.cardWidthDip = 0;
+            m_settings.cardHeightDip = 0;
+        }
+        const SIZE size = layoutFloating();
+        const LONG left = (m_drag->edges & taskbar::WidgetWindow::EdgeLeft) ? start.right - size.cx : start.left;
+        const LONG top = (m_drag->edges & taskbar::WidgetWindow::EdgeTop) ? start.bottom - size.cy : start.top;
+        placeFloating({left, top, left + size.cx, top + size.cy});
+        return;
+    }
+
     // Crossing onto a monitor with another scale resizes the widget; keep
     // the same spot of it under the cursor.
     if (const UINT dpi = GetDpiForWindow(m_widget.hwnd()); dpi != 0 && dpi != m_widgetDpi) {
@@ -557,6 +632,8 @@ void Application::endDrag() {
     if (dock) {
         m_model.floating = false;
         m_settings.floating = false;
+        m_settings.cardWidthDip = 0;  // In the taskbar it is a bar again.
+        m_settings.cardHeightDip = 0;
         saveSettings();
         log::info("widget docked");
         syncWithTaskbar(true);  // Embedding replaces the floating window.
@@ -1133,6 +1210,8 @@ void Application::applySettings(const settings::Settings& updated) {
     m_settings.floating = previous.floating;
     m_settings.floatingX = previous.floatingX;
     m_settings.floatingY = previous.floatingY;
+    m_settings.cardWidthDip = previous.cardWidthDip;
+    m_settings.cardHeightDip = previous.cardHeightDip;
 
     if (previous.colorMode != updated.colorMode) {
         m_model.colorMode = updated.colorMode;

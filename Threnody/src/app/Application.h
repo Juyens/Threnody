@@ -67,6 +67,9 @@ private:
     void onDragFrame();
     void endDrag();
     void syncFloating();
+    [[nodiscard]] SIZE layoutFloating();
+    void placeFloating(const RECT& rect);
+    void beginResize(UINT edges);
     [[nodiscard]] float floatingHeightDip() const;
     [[nodiscard]] std::optional<RECT> dockSlot() const;
     void onMediaChanged();
@@ -187,7 +190,11 @@ private:
     struct Drag {
         POINT grab{};  // Cursor offset inside the widget, pixels.
         bool overDock{false};
+        UINT edges{};  // Non-zero: resizing from these edges instead of moving.
+        RECT startRect{};
+        POINT startCursor{};
     };
+    float m_barWidthDip{};  // Last bar width, for the dock slot while the widget is a card.
     std::optional<Drag> m_drag;
     UINT m_widgetDpi{96};  // The widget's monitor; the taskbar's while docked.
     BYTE m_widgetAlpha{255};

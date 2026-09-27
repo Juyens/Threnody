@@ -26,6 +26,10 @@ struct RectF {
 struct WidgetLayout {
     float width{};
     float height{};
+    bool card{false};           // The floating widget stretched into a vertical card.
+    float controlScale{1.0f};   // Glyph and icon size relative to the bar's.
+    float cornerRadius{};       // Of the panel.
+    float coverCornerRadius{};
     RectF cover;
     RectF title;
     RectF artist;
@@ -41,6 +45,12 @@ struct WidgetLayout {
     // maximum, with the text column absorbing the difference.
     [[nodiscard]] static WidgetLayout compute(float height, float titleWidth, float titleHeight, float artistWidth,
                                               float artistHeight) noexcept;
+
+    // The card: fills `width` x `height` (at least the card minimum): the
+    // cover as large as fits at the top, then title and artist, the
+    // controls spread across, and the visualiser along the bottom.
+    [[nodiscard]] static WidgetLayout computeCard(float width, float height, float titleHeight,
+                                                  float artistHeight) noexcept;
 };
 
 }  // namespace threnody::render

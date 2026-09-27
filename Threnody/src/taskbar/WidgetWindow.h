@@ -20,6 +20,9 @@ namespace threnody::taskbar {
 // it is still attached.
 class WidgetWindow {
 public:
+    // Edges of a floating widget grabbed for resizing; combined for corners.
+    enum Edge : UINT { EdgeLeft = 1, EdgeTop = 2, EdgeRight = 4, EdgeBottom = 8 };
+
     // Client-area position in physical pixels.
     using ClickHandler = std::function<void(POINT position)>;
 
@@ -49,11 +52,14 @@ public:
     // held; `position` is where the button went down. The click that would
     // have followed is suppressed.
     void onDragStart(ClickHandler handler) { m_onDragStart = std::move(handler); }
+    // Fired when the button goes down on an edge of the floating widget.
+    void onResizeStart(std::function<void(UINT edges)> handler) { m_onResizeStart = std::move(handler); }
 
     [[nodiscard]] HWND hwnd() const noexcept { return m_hwnd.get(); }
 
 private:
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    [[nodiscard]] UINT edgesAt(POINT client) const noexcept;
     LRESULT handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     HINSTANCE m_instance{};
@@ -63,6 +69,7 @@ private:
     ClickHandler m_onPointerMove;
     std::function<void()> m_onPointerLeave;
     ClickHandler m_onDragStart;
+    std::function<void(UINT edges)> m_onResizeStart;
     bool m_hovering{false};
     bool m_floating{false};
     std::optional<POINT> m_press;  // Button down, no drag yet.

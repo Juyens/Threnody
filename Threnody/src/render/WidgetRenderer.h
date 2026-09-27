@@ -24,6 +24,8 @@ public:
 
     // Measures the model's text and lays the widget out for `heightDip`.
     [[nodiscard]] Result<WidgetLayout> layout(const WidgetModel& model, float heightDip);
+    // The same for the card, which takes the size it is given.
+    [[nodiscard]] Result<WidgetLayout> layoutCard(const WidgetModel& model, float widthDip, float heightDip);
 
     // Renders one frame into `surface` (already sized in pixels) at `dpi`.
     [[nodiscard]] Result<void> draw(LayeredSurface& surface, const WidgetModel& model, const WidgetLayout& layout,
@@ -41,6 +43,7 @@ private:
     struct TextLine {
         std::wstring text;
         float maxWidth{};
+        IDWriteTextFormat* format{};
         winrt::com_ptr<IDWriteTextLayout> layout;
         DWRITE_TEXT_METRICS metrics{};
     };
@@ -73,6 +76,8 @@ private:
     [[nodiscard]] Result<void> updateTextLine(TextLine& line, const std::wstring& text, float maxWidth,
                                               IDWriteTextFormat& format);
     void releaseDeviceResources() noexcept;
+    void noteTextChange(const WidgetModel& model);
+    [[nodiscard]] Result<void> measureText(const WidgetModel& model, IDWriteTextFormat& title, IDWriteTextFormat& artist);
 
     void drawBackground(const WidgetLayout& layout, const WidgetModel& model);
     void drawHoverHighlight(const WidgetLayout& layout, const WidgetModel& model);

@@ -48,6 +48,10 @@ It can also leave the taskbar: **drag it out** and it floats above everything as
 its own dark panel, remembered across restarts. Drag it back towards the taskbar and a ghost of
 its slot shows where it will dock; let go there and it is embedded again.
 
+While it floats, pull any edge or corner: stretched taller it becomes a **player card**, the cover
+large on top, the text, controls and bars below, all over a blur of the artwork. It keeps
+whatever size you give it; shrink it back and it is a bar again.
+
 ## The spectrum is real
 
 The bars are not decoration. Audio is captured **from Spotify's own process** with WASAPI

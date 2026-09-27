@@ -1,5 +1,6 @@
 #include "taskbar/WidgetWindow.h"
 
+#include "Config.h"
 #include "util/Log.h"
 
 #include <windowsx.h>
@@ -11,6 +12,17 @@ namespace {
 
 constexpr wchar_t widgetClassName[] = L"ThrenodyWidget";
 constexpr int dragThresholdDip = 6;  // Past this, a press is a drag rather than a click.
+
+LPCWSTR resizeCursor(UINT edges) noexcept {
+    using Edge = threnody::taskbar::WidgetWindow::Edge;
+    const bool horizontal = (edges & (Edge::EdgeLeft | Edge::EdgeRight)) != 0;
+    const bool vertical = (edges & (Edge::EdgeTop | Edge::EdgeBottom)) != 0;
+    if (horizontal && vertical) {
+        const bool falling = edges == (Edge::EdgeLeft | Edge::EdgeTop) || edges == (Edge::EdgeRight | Edge::EdgeBottom);
+        return falling ? IDC_SIZENWSE : IDC_SIZENESW;
+    }
+    return horizontal ? IDC_SIZEWE : IDC_SIZENS;
+}
 
 }  // namespace
 
@@ -75,6 +87,23 @@ Result<void> WidgetWindow::makeFloating(const RECT& rect) {
     m_hwnd.reset(hwnd);
     m_floating = true;
     return {};
+}
+
+// Which edges of a floating widget `client` is on; zero inside, or docked.
+UINT WidgetWindow::edgesAt(POINT client) const noexcept {
+    if (!m_floating || !m_hwnd) {
+        return 0;
+    }
+    RECT bounds{};
+    GetClientRect(m_hwnd.get(), &bounds);
+    const UINT dpi = GetDpiForWindow(m_hwnd.get());
+    const int band = MulDiv(static_cast<int>(config::resizeEdgeDip), dpi == 0 ? 96 : static_cast<int>(dpi), 96);
+    UINT edges = 0;
+    edges |= client.x < bounds.left + band ? EdgeLeft : 0;
+    edges |= client.x >= bounds.right - band ? EdgeRight : 0;
+    edges |= client.y < bounds.top + band ? EdgeTop : 0;
+    edges |= client.y >= bounds.bottom - band ? EdgeBottom : 0;
+    return edges;
 }
 
 bool WidgetWindow::isEmbeddedIn(HWND taskbar) const noexcept {
@@ -155,7 +184,27 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
             }
             return 0;
 
+        case WM_SETCURSOR:
+            if (LOWORD(lParam) == HTCLIENT) {
+                POINT cursor{};
+                GetCursorPos(&cursor);
+                ScreenToClient(hwnd, &cursor);
+                if (const UINT edges = edgesAt(cursor); edges != 0) {
+                    SetCursor(LoadCursorW(nullptr, resizeCursor(edges)));
+                    return TRUE;
+                }
+            }
+            break;
+
         case WM_LBUTTONDOWN:
+            if (const UINT edges = edgesAt(POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)}); edges != 0) {
+                m_press.reset();
+                m_dragged = true;  // No click when the button comes up.
+                if (m_onResizeStart) {
+                    m_onResizeStart(edges);
+                }
+                return 0;
+            }
             m_press = POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)};
             m_dragged = false;
             SetCapture(hwnd);  // Keeps the moves coming if the pointer leaves quickly.
