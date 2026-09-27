@@ -1453,7 +1453,7 @@ void Application::onSpectrumFrame() {
         m_analyzer.decay();
     }
     m_model.spectrum = m_analyzer.bands();
-    m_model.pulse = m_beat.update(m_model.spectrum, static_cast<float>(config::spectrumFrameMs));
+    m_model.pulse = m_beat.update(m_analyzer.kickDb(), static_cast<float>(config::spectrumFrameMs));
 
     if (m_model.colorMode != ColorMode::Track) {
         const float step = static_cast<float>(config::spectrumFrameMs) / (1000.0f * config::rainbowCycleSeconds);

@@ -150,22 +150,59 @@ void testLayout() {
 }
 
 void testBeatDetector() {
+    using threnody::dsp::BeatDetector;
+    constexpr float frameMs = 33.0f;
+    // Counts beats over `frames` frames of a kick every `period` frames that
+    // lifts the level from `base` by `lift` dB for one frame.
+    const auto run = [&](float base, float lift, int period, int frames) {
+        BeatDetector detector;
+        int beats = 0;
+        float previous = 0.0f;
+        for (int i = 0; i < frames; ++i) {
+            const float level = period > 0 && i % period == 0 ? base + lift : base;
+            const float pulse = detector.update(level, frameMs);
+            beats += pulse > previous + 0.2f ? 1 : 0;
+            previous = pulse;
+        }
+        return beats;
+    };
+    check(run(-20.0f, 0.0f, 0, 200) == 0, "a steady level does not pulse");
+    const int regular = run(-20.0f, 12.0f, 15, 300);  // ~120 BPM, 20 kicks
+    check(regular >= 17 && regular <= 20, "each kick of a regular beat pulses");
+    const int loud = run(-3.0f, 6.0f, 13, 260);  // Brickwall master: loud floor, 20 kicks
+    check(loud >= 17 && loud <= 20, "kicks pulse even when the bass never gets quiet");
+    const int dense = run(-10.0f, 8.0f, 2, 300);  // A hit every 66 ms
+    check(dense > 0 && static_cast<float>(dense) <= 300.0f * frameMs / threnody::config::beatMinGapMs + 1.0f,
+          "blast beats pulse, but no faster than the minimum gap");
+    check(run(-90.0f, 12.0f, 15, 300) == 0, "near silence does not pulse");
+}
+
+// Kicks (a decaying 55 Hz thump every 500 ms) under a loud, steady mid tone,
+// through the real analyser at the visualiser's frame rate.
+void testKickDetection() {
+    using threnody::dsp::SpectrumAnalyzer;
+    constexpr int rate = 48000;
+    constexpr int hop = rate * 33 / 1000;
+    constexpr float pi = 3.14159265f;
+    SpectrumAnalyzer analyzer(rate);
     threnody::dsp::BeatDetector detector;
-    std::array<float, threnody::config::spectrumBarCount> bands{};
-    bands.fill(0.1f);
-    float pulse = 0.0f;
-    for (int i = 0; i < 60; ++i) {
-        pulse = detector.update(bands, 33.0f);
+    std::vector<float> signal(static_cast<std::size_t>(rate * 10));
+    for (std::size_t n = 0; n < signal.size(); ++n) {
+        const float t = static_cast<float>(n) / rate;
+        const float sinceKick = std::fmod(t, 0.5f);
+        const float kick = 0.8f * std::exp(-sinceKick / 0.08f) * std::sin(2.0f * pi * 55.0f * sinceKick);
+        signal[n] = kick + 0.4f * std::sin(2.0f * pi * 1000.0f * t);
     }
-    check(pulse == 0.0f, "quiet bass does not pulse");
-    bands[0] = bands[1] = bands[2] = 0.8f;
-    check(detector.update(bands, 33.0f) == 1.0f, "a kick pulses");
-    const float after = detector.update(bands, 33.0f);
-    check(after > 0.0f && after < 1.0f, "the pulse fades");
-    for (int i = 0; i < 60; ++i) {
-        pulse = detector.update(bands, 33.0f);
+    int beats = 0;
+    float previous = 0.0f;
+    for (std::size_t end = SpectrumAnalyzer::fftSize; end <= signal.size(); end += hop) {
+        analyzer.analyze(std::span<const float, SpectrumAnalyzer::fftSize>(signal.data() + end - SpectrumAnalyzer::fftSize,
+                                                                           SpectrumAnalyzer::fftSize));
+        const float pulse = detector.update(analyzer.kickDb(), 33.0f);
+        beats += pulse > previous + 0.2f ? 1 : 0;
+        previous = pulse;
     }
-    check(pulse < 0.05f, "a steady loud bass settles instead of pulsing");
+    check(beats >= 17 && beats <= 20, "kicks under a loud tone pulse once each");
 }
 
 void testSettingsRoundTrip() {
@@ -236,6 +273,7 @@ int main() {
     testSpectrum();
     testLayout();
     testBeatDetector();
+    testKickDetection();
     testSettingsRoundTrip();
     testLoopbackListener();
     std::printf("%d checks, %d failures\n", checks, failures);

@@ -3,52 +3,74 @@
 #include "Config.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
-#include <span>
 
 namespace threnody::dsp {
 
-// Finds kicks in the bass bars and turns them into a pulse in [0, 1] that
-// jumps to 1 on a beat and fades out. A beat is the bass rising well above
-// its own recent average, loud enough to matter, not too soon after the last
-// one; comparing against the average keeps a constantly loud bass line from
-// pulsing all the time.
+// Turns the kick range's energy, one reading per visualiser frame, into a
+// pulse in [0, 1] that jumps up on a kick and fades out. See the beat*
+// constants in Config.h for the rules; the gist is onset detection on the
+// rise in dB against an adaptive threshold, so it works the same for a quiet
+// acoustic track and a brickwall-mastered one.
 class BeatDetector {
 public:
-    // One visualiser frame: the current bar levels, `elapsedMs` since the
-    // previous frame. Returns the pulse to draw.
-    float update(std::span<const float> bands, float elapsedMs) noexcept {
+    // `kickDb`: energy of the kick range this frame, in dB (very low when
+    // there is no signal). `elapsedMs` since the previous frame.
+    float update(float kickDb, float elapsedMs) noexcept {
         using namespace config;
-        const std::size_t count = std::min<std::size_t>(beatBassBands, bands.size());
-        float bass = 0.0f;
-        for (std::size_t i = 0; i < count; ++i) {
-            bass += bands[i];
+        const float rise = m_haveLevel ? std::max(0.0f, kickDb - m_previousDb) : 0.0f;
+        m_previousDb = kickDb;
+        m_haveLevel = true;
+
+        // Mean and spread of the recent rises, before adding this one.
+        float mean = 0.0f;
+        float spread = 0.0f;
+        if (m_filled > 0) {
+            for (std::size_t i = 0; i < m_filled; ++i) {
+                mean += m_rises[i];
+            }
+            mean /= static_cast<float>(m_filled);
+            for (std::size_t i = 0; i < m_filled; ++i) {
+                spread += (m_rises[i] - mean) * (m_rises[i] - mean);
+            }
+            spread = std::sqrt(spread / static_cast<float>(m_filled));
         }
-        bass = count > 0 ? bass / static_cast<float>(count) : 0.0f;
+        m_rises[m_next] = rise;
+        m_next = (m_next + 1) % m_rises.size();
+        m_filled = std::min(m_filled + 1, m_rises.size());
 
         m_sinceBeatMs += elapsedMs;
-        const bool beat =
-            bass >= beatMinLevel && bass - m_average >= beatRise && m_sinceBeatMs >= static_cast<float>(beatMinGapMs);
+        const float threshold = std::max(mean + beatSensitivity * spread, beatMinRiseDb);
+        const bool beat = rise >= threshold && kickDb >= beatFloorDb &&
+                          m_sinceBeatMs >= static_cast<float>(beatMinGapMs) && m_filled >= 4;
+
+        const float decayMs = std::clamp(m_intervalMs * beatDecayPerInterval, beatMinDecayMs, beatDecayMs);
+        m_pulse *= std::exp(-elapsedMs / decayMs);
         if (beat) {
+            // A steady beat keeps a running interval; a long silence resets it.
+            m_intervalMs = m_sinceBeatMs > 2000.0f ? 2000.0f : m_intervalMs * 0.7f + m_sinceBeatMs * 0.3f;
             m_sinceBeatMs = 0.0f;
-            m_pulse = 1.0f;
-        } else {
-            m_pulse *= std::exp(-elapsedMs / beatDecayMs);
-            if (m_pulse < 0.01f) {
-                m_pulse = 0.0f;
-            }
+            const float standout = spread > 0.0f ? std::clamp((rise - threshold) / (2.0f * spread), 0.0f, 1.0f) : 1.0f;
+            m_pulse = std::max(m_pulse, beatMinPulse + (1.0f - beatMinPulse) * standout);
         }
-        const float blend = std::clamp(elapsedMs / beatAverageMs, 0.0f, 1.0f);
-        m_average += (bass - m_average) * blend;
+        if (m_pulse < 0.01f) {
+            m_pulse = 0.0f;
+        }
         return m_pulse;
     }
 
     void reset() noexcept { *this = BeatDetector{}; }
 
 private:
-    float m_average{};
+    std::array<float, config::beatHistoryFrames> m_rises{};
+    std::size_t m_next{};
+    std::size_t m_filled{};
+    float m_previousDb{};
+    bool m_haveLevel{false};
     float m_pulse{};
     float m_sinceBeatMs{1e6f};
+    float m_intervalMs{2000.0f};
 };
 
 }  // namespace threnody::dsp

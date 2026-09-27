@@ -67,16 +67,26 @@ inline constexpr float gradientMinLightness = 0.55f;
 inline constexpr float gradientMaxLightness = 0.92f;
 inline constexpr float gradientWaveSpan = 1.0f;  // Wave cycles across the thirteen bars.
 
-// Beat pulse: kicks in the lowest bars make the widget's border glow in the
-// bars' colour for a moment. A kick is the bass average rising this far above
-// its recent average (tracked over beatAverageMs), at least this loud, and no
-// sooner than beatMinGapMs after the last.
-inline constexpr std::size_t beatBassBands = 3;
-inline constexpr float beatRise = 0.10f;
-inline constexpr float beatMinLevel = 0.35f;
-inline constexpr unsigned beatMinGapMs = 220;
-inline constexpr float beatAverageMs = 600.0f;
-inline constexpr float beatDecayMs = 200.0f;  // Time constant of the glow fading out.
+// Beat pulse: kicks make the widget's border glow in the bars' colour for a
+// moment. Detected on the raw energy of the kick drum's range (not on the
+// bars, which saturate and smooth away the gaps between hits in loud, dense
+// music): a kick is a sudden rise in that energy (spectral flux, in dB) that
+// stands out from the rises of the last beatHistoryFrames frames by
+// beatSensitivity standard deviations, is at least beatMinRiseDb, happens
+// above beatFloorDb, and comes no sooner than beatMinGapMs after the last.
+// Hits that stand out more glow brighter; when hits come fast, each glow is
+// shortened in proportion so blast beats flash instead of blurring together.
+inline constexpr double beatKickLowHz = 40.0;
+inline constexpr double beatKickHighHz = 130.0;
+inline constexpr std::size_t beatHistoryFrames = 45;  // ~1.5 s of visualiser frames.
+inline constexpr float beatSensitivity = 1.2f;
+inline constexpr float beatMinRiseDb = 1.5f;
+inline constexpr float beatFloorDb = -50.0f;
+inline constexpr unsigned beatMinGapMs = 150;
+inline constexpr float beatMinPulse = 0.55f;          // Glow of a hit that only just qualifies.
+inline constexpr float beatDecayMs = 200.0f;          // Glow time constant for sparse beats.
+inline constexpr float beatMinDecayMs = 60.0f;        // ...and the shortest, for the densest.
+inline constexpr float beatDecayPerInterval = 0.45f;  // Glow time constant as a share of the beat interval.
 inline constexpr float pulseBorderAlpha = 0.80f;
 inline constexpr float pulseBorderWidthDip = 1.5f;
 inline constexpr float pulseTintAlpha = 0.08f;

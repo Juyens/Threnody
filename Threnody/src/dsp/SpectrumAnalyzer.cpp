@@ -13,6 +13,10 @@ constexpr float epsilon = 1e-12f;
 
 SpectrumAnalyzer::SpectrumAnalyzer(int sampleRate)
     : m_cfg(kiss_fftr_alloc(fftSize, 0, nullptr, nullptr)),
+      m_kickCfg(kiss_fftr_alloc(kickFftSize, 0, nullptr, nullptr)),
+      m_kickWindow(static_cast<std::size_t>(kickFftSize)),
+      m_kickInput(static_cast<std::size_t>(kickFftSize)),
+      m_kickOutput(static_cast<std::size_t>(kickFftSize / 2 + 1)),
       m_window(static_cast<std::size_t>(fftSize)),
       m_input(static_cast<std::size_t>(fftSize)),
       m_output(static_cast<std::size_t>(fftSize / 2 + 1)) {
@@ -23,6 +27,16 @@ SpectrumAnalyzer::SpectrumAnalyzer(int sampleRate)
             0.5f * (1.0f - std::cos(2.0f * std::numbers::pi_v<float> * static_cast<float>(i) / static_cast<float>(fftSize)));
     }
     m_amplitudeScale = 2.0f / (0.5f * static_cast<float>(fftSize));
+
+    for (int i = 0; i < kickFftSize; ++i) {
+        m_kickWindow[static_cast<std::size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * std::numbers::pi_v<float> *
+                                                                            static_cast<float>(i) /
+                                                                            static_cast<float>(kickFftSize)));
+    }
+    m_kickScale = 2.0f / (0.5f * static_cast<float>(kickFftSize));
+    const double kickBinHz = static_cast<double>(sampleRate) / kickFftSize;
+    const int kickFirst = std::max(1, static_cast<int>(std::floor(config::beatKickLowHz / kickBinHz)));
+    m_kickBins = {kickFirst, std::max(kickFirst, static_cast<int>(std::ceil(config::beatKickHighHz / kickBinHz)) - 1)};
 
     // Log-spaced band edges; each band covers at least one bin.
     const double binHz = static_cast<double>(sampleRate) / fftSize;
@@ -66,10 +80,23 @@ void SpectrumAnalyzer::analyze(std::span<const float, fftSize> samples) noexcept
             std::clamp((db - config::spectrumFloorDb) / (config::spectrumCeilingDb - config::spectrumFloorDb), 0.0f, 1.0f);
     }
     smoothToward(target);
+
+    const std::size_t offset = static_cast<std::size_t>(fftSize - kickFftSize);
+    for (std::size_t i = 0; i < static_cast<std::size_t>(kickFftSize); ++i) {
+        m_kickInput[i] = samples[offset + i] * m_kickWindow[i];
+    }
+    kiss_fftr(m_kickCfg.get(), m_kickInput.data(), m_kickOutput.data());
+    float kickPower = 0.0f;
+    for (int bin = m_kickBins.first; bin <= m_kickBins.second; ++bin) {
+        const kiss_fft_cpx& c = m_kickOutput[static_cast<std::size_t>(bin)];
+        kickPower += c.r * c.r + c.i * c.i;
+    }
+    m_kickDb = 20.0f * std::log10(std::sqrt(kickPower) * m_kickScale + epsilon);
 }
 
 void SpectrumAnalyzer::decay() noexcept {
     smoothToward(std::array<float, bandCount>{});
+    m_kickDb = silenceDb;
 }
 
 void SpectrumAnalyzer::smoothToward(const std::array<float, bandCount>& target) noexcept {
