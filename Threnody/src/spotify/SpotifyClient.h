@@ -1,5 +1,7 @@
 #pragma once
 
+#include "media/RepeatMode.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -49,6 +51,16 @@ struct QueueResult {
     std::optional<QueuedTrack> next;
 };
 
+// Shuffle and repeat as the Web API reports them: the reliable view, where
+// SMTC is seconds late and cannot tell smart shuffle from shuffle.
+struct PlayerModes {
+    bool shuffle{false};
+    bool smartShuffle{false};
+    RepeatMode repeat{RepeatMode::Off};
+
+    bool operator==(const PlayerModes&) const = default;
+};
+
 // Downloaded album art, tagged with the URL it came from.
 struct Artwork {
     std::wstring url;
@@ -81,10 +93,10 @@ public:
     void disconnect();
 
     // Fetches the player state: what is playing (result in `links()`) and
-    // whether smart shuffle is on (`smartShuffle()`, empty until known).
+    // the shuffle and repeat modes (`modes()`, empty until known).
     void requestNowPlaying();
     [[nodiscard]] std::optional<TrackLinks> links() const;
-    [[nodiscard]] std::optional<bool> smartShuffle() const;
+    [[nodiscard]] std::optional<PlayerModes> modes() const;
 
     // Fetches the queue; the answer appears in `queue()` tagged with the
     // returned request number, so a stale answer can be told apart.

@@ -261,15 +261,22 @@ inline constexpr float cardOsdValueDip = 30.0f;    // Room for "100".
 inline constexpr float cardOsdLiftDip = 6.0f;      // Rises this much as it appears.
 inline constexpr Color cardOsdBackgroundColor{0.06f, 0.06f, 0.06f, 0.72f};
 
-// SMTC reports Spotify's state seconds late. After a shuffle or repeat
-// click the widget shows the new state and ignores a contrary report for
-// this long.
-inline constexpr unsigned toggleConfirmHoldMs = 15000;
-// Smart shuffle is only visible through the Web API's player state, read
-// on track changes, a moment after a shuffle click, and every this many
-// health ticks while a session exists.
-inline constexpr unsigned playerStateRefreshTicks = 8;
-inline constexpr unsigned playerStateRecheckMs = 1500;
+// Spotify applies a shuffle or repeat request at once and SMTC reports the
+// new state within about 50 ms. A contrary report inside this window after a
+// click predates it and is ignored.
+inline constexpr unsigned toggleConfirmHoldMs = 3000;
+// Clicks on the same toggle closer together than this are dropped: racing
+// Spotify before it has applied the last one leaves the two out of step.
+inline constexpr unsigned toggleDebounceMs = 350;
+// Smart shuffle only shows through the Web API's player state, which trails
+// SMTC by one to two seconds. It is read on track changes, twice after a
+// shuffle click or a shuffle change made in Spotify (at these delays), and
+// every this many health ticks while a session exists. Right after a click,
+// a smart shuffle report is not trusted for smartShuffleSettleMs.
+inline constexpr unsigned playerStateRefreshTicks = 2;
+inline constexpr unsigned playerStateRecheckFirstMs = 400;
+inline constexpr unsigned playerStateRecheckSecondMs = 1600;
+inline constexpr unsigned smartShuffleSettleMs = 2500;
 // The smart shuffle icon: the shuffle arrows shrunk toward the lower right,
 // a sparkle in the upper left.
 inline constexpr float smartShuffleArrowsShare = 0.82f;

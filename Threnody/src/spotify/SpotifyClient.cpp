@@ -99,7 +99,7 @@ struct SpotifyClient::Shared {
     std::chrono::steady_clock::time_point accessTokenExpiry{};
     Status status;
     std::optional<TrackLinks> links;
-    std::optional<bool> smartShuffle;
+    std::optional<PlayerModes> modes;
     std::deque<Artwork> artworks;  // Most recent first.
     std::uint32_t queueRequests{};
     std::optional<QueueResult> queue;
@@ -259,7 +259,7 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
         if (response.StatusCode() == HttpStatusCode::NoContent) {
             std::scoped_lock lock{shared->mutex};
             shared->links.reset();
-            shared->smartShuffle.reset();
+            shared->modes.reset();
             co_return;
         }
         const winrt::hstring body = co_await response.Content().ReadAsStringAsync();
@@ -272,9 +272,27 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
             co_return;
         }
         const json j = json::parse(winrt::to_string(body));
-        if (const auto smart = j.find("smart_shuffle"); smart != j.end() && smart->is_boolean()) {
+        {
+            PlayerModes modes;
+            if (const auto shuffle = j.find("shuffle_state"); shuffle != j.end() && shuffle->is_boolean()) {
+                modes.shuffle = shuffle->get<bool>();
+            }
+            if (const auto smart = j.find("smart_shuffle"); smart != j.end() && smart->is_boolean()) {
+                modes.smartShuffle = smart->get<bool>();
+            }
+            if (const auto repeat = j.find("repeat_state"); repeat != j.end() && repeat->is_string()) {
+                const std::string value = repeat->get<std::string>();
+                modes.repeat = value == "track" ? RepeatMode::One : value == "context" ? RepeatMode::All : RepeatMode::Off;
+            }
             std::scoped_lock lock{shared->mutex};
-            shared->smartShuffle = smart->get<bool>();
+            if (shared->modes != modes) {
+                log::info("Spotify modes: shuffle {}{}, repeat {}", modes.shuffle ? "on" : "off",
+                          modes.smartShuffle ? " (smart)" : "",
+                          modes.repeat == RepeatMode::One   ? "one"
+                          : modes.repeat == RepeatMode::All ? "all"
+                                                            : "off");
+            }
+            shared->modes = modes;
         }
         const auto item = j.find("item");
         if (item == j.end() || !item->is_object()) {
@@ -531,9 +549,9 @@ std::optional<TrackLinks> SpotifyClient::links() const {
     return m_shared->links;
 }
 
-std::optional<bool> SpotifyClient::smartShuffle() const {
+std::optional<PlayerModes> SpotifyClient::modes() const {
     std::scoped_lock lock{m_shared->mutex};
-    return m_shared->smartShuffle;
+    return m_shared->modes;
 }
 
 void SpotifyClient::requestArtwork(std::wstring url) {

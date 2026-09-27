@@ -88,6 +88,7 @@ private:
     void toggleShuffle();
     void syncShuffle(const std::optional<bool>& reported);
     void syncSmartShuffle();
+    void schedulePlayerRecheck();
     void cycleRepeat();
     void syncRepeat(const std::optional<RepeatMode>& reported);
     void refreshVolume();
@@ -202,6 +203,9 @@ private:
     audio::SpotifyVolume m_volume;
     ULONGLONG m_shuffleHoldUntil{};
     ULONGLONG m_repeatHoldUntil{};
+    ULONGLONG m_shuffleClickTick{};
+    ULONGLONG m_repeatClickTick{};
+    bool m_secondRecheckPending{false};
     unsigned m_playerStateTicks{};
     std::unique_ptr<overlay::KeyboardHook> m_keyboardHook;
     bool m_overlayTestState{false};

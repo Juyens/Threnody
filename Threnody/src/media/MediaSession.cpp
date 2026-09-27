@@ -97,6 +97,13 @@ void refreshPlayback(const std::shared_ptr<Shared>& shared) {
         bool changed = false;
         {
             std::scoped_lock lock{shared->mutex};
+            if (shared->state.shuffle != shuffle || shared->state.repeat != repeat) {
+                log::info("SMTC modes: shuffle {}, repeat {}", shuffle ? (*shuffle ? "on" : "off") : "n/a",
+                          !repeat                     ? "n/a"
+                          : *repeat == RepeatMode::One ? "one"
+                          : *repeat == RepeatMode::All ? "all"
+                                                       : "off");
+            }
             changed = shared->state.playing != playing || shared->state.shuffle != shuffle ||
                       shared->state.repeat != repeat;
             shared->state.playing = playing;

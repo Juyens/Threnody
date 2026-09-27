@@ -292,6 +292,11 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 if (m_spotify && m_spotify->connected()) {
                     m_spotify->requestNowPlaying();
                 }
+                if (m_secondRecheckPending) {
+                    m_secondRecheckPending = false;
+                    SetTimer(hwnd, playerRecheckTimerId,
+                             config::playerStateRecheckSecondMs - config::playerStateRecheckFirstMs, nullptr);
+                }
             } else if (wParam == queueRetryTimerId) {
                 KillTimer(hwnd, queueRetryTimerId);
                 if (!m_upNextKnown && m_queueRequest == 0 && m_peekHoverSince != 0 && m_spotify) {
@@ -835,7 +840,8 @@ void Application::onWidgetClick(POINT position) {
     const float y = pixelsToDip(position.y, m_widgetDpi);
 
     const interaction::Zone zone = interaction::hitTest(m_widgetLayout, x, y);
-    log::info("click at ({:.0f}, {:.0f}) dip -> zone {}", x, y, static_cast<int>(zone));
+    log::info("click at ({}, {}) px = ({:.0f}, {:.0f}) dip at dpi {} -> zone {}", position.x, position.y, x, y,
+              m_widgetDpi, static_cast<int>(zone));
 
     switch (zone) {
         case interaction::Zone::Background:
@@ -889,24 +895,38 @@ void Application::toggleShuffle() {
     if (!m_model.shuffle) {
         return;  // Spotify offers no shuffle control right now.
     }
+    const ULONGLONG now = GetTickCount64();
+    if (now - m_shuffleClickTick < config::toggleDebounceMs) {
+        return;
+    }
+    m_shuffleClickTick = now;
     // On (smart or not) goes off, off goes on. Smart shuffle can only be
     // switched on in Spotify: neither SMTC nor the Web API can set it.
     const bool active = !*m_model.shuffle;
     m_media->setShuffle(active);
     m_model.shuffle = active;
     m_model.smartShuffle = false;
-    m_shuffleHoldUntil = GetTickCount64() + config::toggleConfirmHoldMs;
-    SetTimer(m_messageWindow.get(), playerRecheckTimerId, config::playerStateRecheckMs, nullptr);
+    m_shuffleHoldUntil = now + config::toggleConfirmHoldMs;
+    schedulePlayerRecheck();
     repaintWidget();
 }
 
-// Smart shuffle as the Web API last reported it, unless a shuffle click is
-// still waiting for Spotify to catch up.
+// Reads the Web API's player state twice soon, so smart shuffle catches up.
+void Application::schedulePlayerRecheck() {
+    m_secondRecheckPending = true;
+    SetTimer(m_messageWindow.get(), playerRecheckTimerId, config::playerStateRecheckFirstMs, nullptr);
+}
+
+// Smart shuffle as the Web API last reported it. Just after a click its
+// report may still describe the state before, so a "smart" then waits.
 void Application::syncSmartShuffle() {
-    if (!m_spotify || GetTickCount64() < m_shuffleHoldUntil) {
+    if (!m_spotify) {
         return;
     }
-    const bool smart = m_spotify->smartShuffle().value_or(false);
+    const bool smart = m_spotify->modes() ? m_spotify->modes()->smartShuffle : false;
+    if (smart && GetTickCount64() - m_shuffleClickTick < config::smartShuffleSettleMs) {
+        return;
+    }
     if (smart != m_model.smartShuffle) {
         m_model.smartShuffle = smart;
         log::info("smart shuffle {}", smart ? "on" : "off");
@@ -919,10 +939,15 @@ void Application::cycleRepeat() {
     if (!m_model.repeat) {
         return;  // Spotify offers no repeat control right now.
     }
+    const ULONGLONG now = GetTickCount64();
+    if (now - m_repeatClickTick < config::toggleDebounceMs) {
+        return;
+    }
+    m_repeatClickTick = now;
     const RepeatMode next = nextRepeatMode(*m_model.repeat);
     m_media->setRepeat(next);
     m_model.repeat = next;
-    m_repeatHoldUntil = GetTickCount64() + config::toggleConfirmHoldMs;
+    m_repeatHoldUntil = now + config::toggleConfirmHoldMs;
     repaintWidget();
 }
 
@@ -940,7 +965,7 @@ void Application::syncRepeat(const std::optional<RepeatMode>& reported) {
 }
 
 // Takes SMTC's shuffle state, except that right after a click a contrary
-// report is most likely Spotify's stale one; it wins only once the hold ends.
+// report is from before it; it wins only once the hold ends.
 void Application::syncShuffle(const std::optional<bool>& reported) {
     if (reported == m_model.shuffle) {
         m_shuffleHoldUntil = 0;
@@ -949,8 +974,13 @@ void Application::syncShuffle(const std::optional<bool>& reported) {
     if (reported && GetTickCount64() < m_shuffleHoldUntil) {
         return;
     }
+    // Changed in Spotify itself (or confirmed): see whether it is smart.
+    const bool changedElsewhere = m_shuffleHoldUntil == 0 && reported && m_model.shuffle;
     m_shuffleHoldUntil = 0;
     m_model.shuffle = reported;
+    if (changedElsewhere && m_spotify && m_spotify->connected()) {
+        schedulePlayerRecheck();
+    }
     repaintWidget();
 }
 
