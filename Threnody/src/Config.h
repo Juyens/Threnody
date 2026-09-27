@@ -263,6 +263,15 @@ inline constexpr unsigned queueRetryLimit = 5;
 inline constexpr unsigned volumeOsdHoldMs = 900;
 inline constexpr unsigned volumeOsdFadeMs = 250;
 inline constexpr float volumeOsdTrackHeightDip = 3.0f;
+// On the card, which has no visualiser, the level shows in a translucent
+// capsule over the bottom of the cover: speaker, level, percentage.
+inline constexpr float cardOsdHeightDip = 30.0f;
+inline constexpr float cardOsdWidthShare = 0.72f;  // Of the cover's width.
+inline constexpr float cardOsdMarginDip = 12.0f;   // Above the cover's bottom edge.
+inline constexpr float cardOsdIconDip = 16.0f;
+inline constexpr float cardOsdValueDip = 30.0f;    // Room for "100".
+inline constexpr float cardOsdLiftDip = 6.0f;      // Rises this much as it appears.
+inline constexpr Color cardOsdBackgroundColor{0.06f, 0.06f, 0.06f, 0.72f};
 
 // SMTC reports Spotify's state seconds late. After a shuffle click the
 // widget shows the new state and ignores a contrary report for this long.

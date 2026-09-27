@@ -535,6 +535,9 @@ Result<void> WidgetRenderer::draw(LayeredSurface& surface, const WidgetModel& mo
     drawPulse(layout, model);
     drawHoverHighlight(layout, model);
     drawCover(layout, model);
+    if (layout.card) {
+        drawCardVolume(layout, model);
+    }
     drawText(layout);
     drawControls(layout, model);
     drawSpectrum(layout, model);
@@ -675,6 +678,63 @@ void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& mo
     m_target->SetTransform(D2D1::Matrix3x2F::Scale(std::max(std::abs(squeeze), 0.001f), 1.0f, centre));
     drawCoverFace(squeeze > 0.0f ? m_coverFrom : m_cover, shape);
     m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
+// The card's volume indicator: a capsule over the bottom of the cover with
+// the speaker, a level track and the percentage, rising a little as it
+// fades in and sinking back as it fades out.
+void WidgetRenderer::drawCardVolume(const WidgetLayout& layout, const WidgetModel& model) {
+    using namespace config;
+    const float osd = volumeOsdOpacity(model);
+    if (osd <= 0.0f) {
+        return;
+    }
+    const float level = std::clamp(model.volume.value_or(0.0f), 0.0f, 1.0f);
+    const RectF& cover = layout.cover;
+    const float width = cover.width() * cardOsdWidthShare;
+    const float left = cover.left + (cover.width() - width) / 2.0f;
+    const float bottom = cover.bottom - cardOsdMarginDip + cardOsdLiftDip * (1.0f - osd);
+    const D2D1_RECT_F pill{left, bottom - cardOsdHeightDip, left + width, bottom};
+    const float round = cardOsdHeightDip / 2.0f;
+    const float centreY = (pill.top + pill.bottom) / 2.0f;
+
+    fill(cardOsdBackgroundColor.withAlpha(cardOsdBackgroundColor.a * osd));
+    m_target->FillRoundedRectangle({pill, round, round}, m_brush.get());
+
+    // Speaker, drawn like the volume button's.
+    const std::size_t speaker = level <= 0.0f ? 0 : level < 0.34f ? 1 : level < 0.67f ? 2 : 3;
+    const float iconLeft = pill.left + round - cardOsdIconDip / 2.0f + 2.0f;
+    const float scale = cardOsdIconDip / icons::canvasUnits;
+    fill(controlColor.withAlpha(controlColor.a * osd));
+    m_target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) *
+                           D2D1::Matrix3x2F::Translation(iconLeft, centreY - cardOsdIconDip / 2.0f));
+    m_target->FillGeometry(m_speakerIcons[speaker].get(), m_brush.get());
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    // Level track between the speaker and the number.
+    const float trackLeft = iconLeft + cardOsdIconDip + 8.0f;
+    const float trackRight = pill.right - round / 2.0f - cardOsdValueDip - 6.0f;
+    const float half = volumeOsdTrackHeightDip / 2.0f;
+    fill(volumeFlyoutTrackColor.withAlpha(volumeFlyoutTrackColor.a * osd));
+    m_target->FillRoundedRectangle({{trackLeft, centreY - half, trackRight, centreY + half}, half, half},
+                                   m_brush.get());
+    fill(volumeFlyoutFillColor.withAlpha(volumeFlyoutFillColor.a * osd));
+    m_target->FillRoundedRectangle(
+        {{trackLeft, centreY - half, trackLeft + (trackRight - trackLeft) * level, centreY + half}, half, half},
+        m_brush.get());
+
+    const std::wstring value = std::to_wstring(static_cast<int>(std::lround(level * 100.0f)));
+    winrt::com_ptr<IDWriteTextLayout> text;
+    if (SUCCEEDED(m_graphics.dwrite->CreateTextLayout(value.c_str(), static_cast<UINT32>(value.size()),
+                                                      &m_fonts.artist(), cardOsdValueDip, cardOsdHeightDip,
+                                                      text.put()))) {
+        text->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+        DWRITE_TEXT_METRICS metrics{};
+        text->GetMetrics(&metrics);
+        fill(titleColor.withAlpha(titleColor.a * osd));
+        m_target->DrawTextLayout({pill.right - round / 2.0f - cardOsdValueDip, centreY - metrics.height / 2.0f},
+                                 text.get(), m_brush.get());
+    }
 }
 
 void WidgetRenderer::drawCoverFace(const std::optional<Cover>& face, const D2D1_ROUNDED_RECT& shape) {

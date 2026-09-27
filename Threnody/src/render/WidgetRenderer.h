@@ -85,6 +85,7 @@ private:
     void drawPulse(const WidgetLayout& layout, const WidgetModel& model);
     void drawCover(const WidgetLayout& layout, const WidgetModel& model);
     void drawCoverFace(const std::optional<Cover>& face, const D2D1_ROUNDED_RECT& shape);
+    void drawCardVolume(const WidgetLayout& layout, const WidgetModel& model);
     void drawText(const WidgetLayout& layout);
     void drawTextLine(const TextLine& line, const winrt::com_ptr<IDWriteTextLayout>& natural, const RectF& box,
                       const Color& color, float opacity, float lift);
