@@ -88,6 +88,7 @@ private:
 
     void fill(const Color& color);
     [[nodiscard]] static Color barColor(const WidgetModel& model, int bar);
+    [[nodiscard]] static float volumeOsdOpacity(const WidgetModel& model) noexcept;
     [[nodiscard]] float marqueeOffset(const TextLine& line, const winrt::com_ptr<IDWriteTextLayout>& natural,
                                       float boxWidth) const noexcept;
 

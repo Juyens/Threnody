@@ -206,6 +206,25 @@ inline constexpr Color floatingBorderColor{1.0f, 1.0f, 1.0f, 0.10f};
 inline constexpr Color floatingHoverBackgroundColor{0.17f, 0.17f, 0.17f, 0.97f};
 inline constexpr Color floatingHoverBorderColor{1.0f, 1.0f, 1.0f, 0.18f};
 
+// Queue peek: resting the pointer on "next" shows what plays next in a
+// bubble over the button, after a short pause so passing over it does not.
+inline constexpr unsigned queuePeekDelayMs = 350;
+inline constexpr float queuePeekWidthDip = 250.0f;
+inline constexpr float queuePeekHeightDip = 64.0f;
+inline constexpr float queuePeekPaddingDip = 10.0f;
+inline constexpr float queuePeekCoverDip = 44.0f;
+inline constexpr float queuePeekGapDip = 8.0f;
+inline constexpr float queuePeekLabelSizeDip = 10.5f;
+inline constexpr float queuePeekTitleSizeDip = 13.0f;
+inline constexpr float queuePeekSubtitleSizeDip = 11.5f;
+inline constexpr unsigned queuePeekFadeMs = 140;
+
+// Wheel over the widget: Spotify's volume in steps of volumeStep per notch.
+// The visualiser shows the level for a moment instead of the bars.
+inline constexpr unsigned volumeOsdHoldMs = 900;
+inline constexpr unsigned volumeOsdFadeMs = 250;
+inline constexpr float volumeOsdTrackHeightDip = 3.0f;
+
 // SMTC reports Spotify's state seconds late. After a shuffle click the
 // widget shows the new state and ignores a contrary report for this long.
 inline constexpr unsigned shuffleConfirmHoldMs = 15000;

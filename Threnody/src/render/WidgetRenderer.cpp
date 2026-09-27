@@ -690,7 +690,8 @@ void WidgetRenderer::drawTextLine(const TextLine& line, const winrt::com_ptr<IDW
 bool WidgetRenderer::animating(const WidgetModel& model, const WidgetLayout& layout) const noexcept {
     if (progress(m_coverFlipStart, config::coverFlipMs) < 1.0f ||
         progress(m_textSlideStart, config::textSlideMs) < 1.0f ||
-        (model.floating && progress(m_backdropFadeStart, config::coverFlipMs) < 1.0f)) {
+        (model.floating && progress(m_backdropFadeStart, config::coverFlipMs) < 1.0f) ||
+        volumeOsdOpacity(model) > 0.0f) {
         return true;
     }
     return model.hover && (marqueeOffset(m_title, m_titleNatural, layout.title.width()) >= 0.0f ||
@@ -774,14 +775,51 @@ Color WidgetRenderer::barColor(const WidgetModel& model, int bar) {
     return model.accent;
 }
 
+float WidgetRenderer::volumeOsdOpacity(const WidgetModel& model) noexcept {
+    if (model.volumeOsdSince == 0 || !model.volume) {
+        return 0.0f;
+    }
+    const auto elapsed = static_cast<float>(GetTickCount64() - model.volumeOsdSince);
+    const float hold = static_cast<float>(config::volumeOsdHoldMs);
+    return elapsed <= hold ? 1.0f : std::clamp(1.0f - (elapsed - hold) / config::volumeOsdFadeMs, 0.0f, 1.0f);
+}
+
 void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel& model) {
     using namespace config;
     const RectF& zone = layout.visualizer;
     const float maxHeight = zone.height();
 
+    // While the wheel changes the volume, the level takes the bars' place.
+    const float osd = volumeOsdOpacity(model);
+    if (osd > 0.0f) {
+        const float level = std::clamp(model.volume.value_or(0.0f), 0.0f, 1.0f);
+        const std::wstring value = std::to_wstring(static_cast<int>(std::lround(level * 100.0f)));
+        winrt::com_ptr<IDWriteTextLayout> text;
+        if (SUCCEEDED(m_graphics.dwrite->CreateTextLayout(value.c_str(), static_cast<UINT32>(value.size()),
+                                                          &m_fonts.artist(), zone.width(), zone.height(), text.put()))) {
+            text->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            DWRITE_TEXT_METRICS metrics{};
+            text->GetMetrics(&metrics);
+            fill(config::titleColor.withAlpha(config::titleColor.a * osd));
+            const float textTop = zone.top + (zone.height() - volumeOsdTrackHeightDip - 3.0f - metrics.height) / 2.0f;
+            m_target->DrawTextLayout({zone.left, textTop}, text.get(), m_brush.get());
+        }
+        const float half = volumeOsdTrackHeightDip / 2.0f;
+        const float trackY = zone.bottom - half;
+        fill(config::volumeFlyoutTrackColor.withAlpha(config::volumeFlyoutTrackColor.a * osd));
+        m_target->FillRoundedRectangle({{zone.left, trackY - half, zone.right, trackY + half}, half, half}, m_brush.get());
+        fill(barColor(model, 0).withAlpha(osd));
+        m_target->FillRoundedRectangle(
+            {{zone.left, trackY - half, zone.left + zone.width() * level, trackY + half}, half, half}, m_brush.get());
+        if (osd >= 1.0f) {
+            return;
+        }
+    }
+
     float x = zone.left;
     for (int i = 0; i < spectrumBarCount; ++i) {
-        fill(barColor(model, i));
+        const Color color = barColor(model, i);
+        fill(color.withAlpha(color.a * (1.0f - osd)));
         const float value = std::clamp(model.spectrum[static_cast<std::size_t>(i)], 0.0f, 1.0f);
         const float height = spectrumBaselineDip + value * (maxHeight - spectrumBaselineDip);
         const D2D1_ROUNDED_RECT bar{

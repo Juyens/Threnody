@@ -19,6 +19,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <deque>
 #include <mutex>
 
 namespace threnody::spotify {
@@ -32,6 +33,8 @@ namespace {
 constexpr wchar_t authorizeEndpoint[] = L"https://accounts.spotify.com/authorize";
 constexpr wchar_t tokenEndpoint[] = L"https://accounts.spotify.com/api/token";
 constexpr wchar_t nowPlayingEndpoint[] = L"https://api.spotify.com/v1/me/player/currently-playing";
+constexpr wchar_t queueEndpoint[] = L"https://api.spotify.com/v1/me/player/queue";
+constexpr std::size_t artworkCacheSize = 4;  // The current cover and the next one, with room to spare.
 constexpr unsigned authorizationTimeoutSeconds = 300;
 constexpr int minArtworkPx = 128;  // Covers the widget's cover square at high DPI.
 constexpr std::uint32_t maxArtworkBytes = std::uint32_t{8} << 20;
@@ -94,7 +97,9 @@ struct SpotifyClient::Shared {
     std::chrono::steady_clock::time_point accessTokenExpiry{};
     Status status;
     std::optional<TrackLinks> links;
-    std::optional<Artwork> artwork;
+    std::deque<Artwork> artworks;  // Most recent first.
+    std::uint32_t queueRequests{};
+    std::optional<QueueResult> queue;
 
     // Pending authorisation.
     std::string pendingVerifier;
@@ -289,6 +294,61 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
     }
 }
 
+// The next entry of the queue. Tracks name their artists; podcast episodes
+// have a show instead.
+winrt::fire_and_forget fetchQueue(std::weak_ptr<Shared> weak, std::uint32_t request) {
+    auto shared = weak.lock();
+    if (!shared) {
+        co_return;
+    }
+    const winrt::hstring token = co_await ensureAccessToken(shared);
+    if (token.empty()) {
+        co_return;
+    }
+    QueueResult result{.request = request};
+    try {
+        HttpClient client;
+        client.DefaultRequestHeaders().Authorization(Headers::HttpCredentialsHeaderValue{L"Bearer", token});
+        const HttpResponseMessage response = co_await client.GetAsync(Uri{queueEndpoint});
+        const winrt::hstring body = co_await response.Content().ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode()) {
+            log::warn("Spotify queue: HTTP {}", static_cast<int>(response.StatusCode()));
+            if (response.StatusCode() == HttpStatusCode::Unauthorized) {
+                std::scoped_lock lock{shared->mutex};
+                shared->accessToken.clear();
+            }
+        } else if (const json j = json::parse(winrt::to_string(body)); j.contains("queue") && j["queue"].is_array() &&
+                                                                          !j["queue"].empty() &&
+                                                                          j["queue"].front().is_object()) {
+            const json& item = j["queue"].front();
+            QueuedTrack next;
+            next.name = text::toWide(item.value("name", ""));
+            if (const auto artists = item.find("artists");
+                artists != item.end() && artists->is_array() && !artists->empty() && artists->front().is_object()) {
+                next.artist = text::toWide(artists->front().value("name", ""));
+            } else if (const auto show = item.find("show"); show != item.end() && show->is_object()) {
+                next.artist = text::toWide(show->value("name", ""));
+            }
+            next.artworkUrl = pickArtworkUrl(item);
+            if (next.artworkUrl.empty()) {
+                if (const auto images = item.find("images"); images != item.end()) {
+                    next.artworkUrl = pickArtworkUrl(json{{"album", {{"images", *images}}}});  // Episodes carry their own.
+                }
+            }
+            result.next = std::move(next);
+        }
+    } catch (const winrt::hresult_error& e) {
+        log::warn("Spotify queue failed: {}", describe(e));
+    } catch (const json::exception& e) {
+        log::warn("Spotify queue: bad JSON: {}", e.what());
+    }
+    {
+        std::scoped_lock lock{shared->mutex};
+        shared->queue = std::move(result);
+    }
+    shared->notify();
+}
+
 // Album art lives on Spotify's public image CDN; no token needed.
 winrt::fire_and_forget fetchArtwork(std::weak_ptr<Shared> weak, std::wstring url) {
     try {
@@ -309,7 +369,11 @@ winrt::fire_and_forget fetchArtwork(std::weak_ptr<Shared> weak, std::wstring url
         }
         {
             std::scoped_lock lock{shared->mutex};
-            shared->artwork = Artwork{.url = std::move(url), .bytes = {buffer.data(), buffer.data() + buffer.Length()}};
+            shared->artworks.push_front(
+                Artwork{.url = std::move(url), .bytes = {buffer.data(), buffer.data() + buffer.Length()}});
+            if (shared->artworks.size() > artworkCacheSize) {
+                shared->artworks.pop_back();
+            }
         }
         shared->notify();
     } catch (const winrt::hresult_error& e) {
@@ -424,7 +488,8 @@ void SpotifyClient::disconnect() {
         m_shared->credentials = {};
         m_shared->accessToken.clear();
         m_shared->links.reset();
-        m_shared->artwork.reset();
+        m_shared->artworks.clear();
+        m_shared->queue.reset();
         m_shared->status = {AuthState::Disconnected, ""};
         listener = std::move(m_shared->listener);
     }
@@ -445,14 +510,37 @@ std::optional<TrackLinks> SpotifyClient::links() const {
 }
 
 void SpotifyClient::requestArtwork(std::wstring url) {
-    if (!url.empty()) {
-        fetchArtwork(m_shared, std::move(url));
+    if (url.empty() || artwork(url)) {
+        return;
     }
+    fetchArtwork(m_shared, std::move(url));
 }
 
-std::optional<Artwork> SpotifyClient::artwork() const {
+std::optional<Artwork> SpotifyClient::artwork(const std::wstring& url) const {
     std::scoped_lock lock{m_shared->mutex};
-    return m_shared->artwork;
+    for (const Artwork& artwork : m_shared->artworks) {
+        if (artwork.url == url) {
+            return artwork;
+        }
+    }
+    return std::nullopt;
+}
+
+std::uint32_t SpotifyClient::requestQueue() {
+    std::uint32_t request{};
+    {
+        std::scoped_lock lock{m_shared->mutex};
+        request = ++m_shared->queueRequests;
+    }
+    if (connected()) {
+        fetchQueue(m_shared, request);
+    }
+    return request;
+}
+
+std::optional<QueueResult> SpotifyClient::queue() const {
+    std::scoped_lock lock{m_shared->mutex};
+    return m_shared->queue;
 }
 
 }  // namespace threnody::spotify

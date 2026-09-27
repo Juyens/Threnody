@@ -28,6 +28,9 @@ struct WidgetModel {
     // Spotify's volume in the Windows mixer, 0 when muted; empty when it has
     // no audio session.
     std::optional<float> volume;
+    // When the wheel last changed the volume (GetTickCount64), 0 if never:
+    // the visualiser shows the level for a moment instead of the bars.
+    std::uint64_t volumeOsdSince{};
 
     // Encoded image (PNG/JPEG bytes) or empty for the placeholder. The
     // version changes whenever the bytes do, so the renderer can cache the

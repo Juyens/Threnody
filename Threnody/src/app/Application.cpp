@@ -32,12 +32,14 @@ constexpr unsigned hoverFrameMs = 16;
 constexpr UINT_PTR audioTimerId = 4;
 constexpr UINT_PTR dragTimerId = 5;
 constexpr UINT_PTR animationTimerId = 6;
+constexpr UINT_PTR peekTimerId = 7;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
 constexpr UINT WM_THRENODY_TRAY = WM_APP + 4;
 constexpr UINT WM_THRENODY_SPOTIFY = WM_APP + 5;
-constexpr UINT WM_THRENODY_DRAG = WM_APP + 6;  // wParam, lParam: grab point in the widget
+constexpr UINT WM_THRENODY_DRAG = WM_APP + 6;   // wParam, lParam: grab point in the widget
+constexpr UINT WM_THRENODY_WHEEL = WM_APP + 7;  // wParam: wheel delta (signed)
 
 // Shifts `rect` fully onto the work area of the monitor it is (mostly) on,
 // so a floating widget can never be left off-screen.
@@ -261,7 +263,14 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 onDragFrame();
             } else if (wParam == animationTimerId) {
                 repaintWidget();
+            } else if (wParam == peekTimerId) {
+                KillTimer(hwnd, peekTimerId);
+                updateQueuePeek();
             }
+            return 0;
+
+        case WM_THRENODY_WHEEL:
+            onWheel(static_cast<int>(static_cast<INT_PTR>(wParam)));
             return 0;
 
         case WM_THRENODY_DRAG:
@@ -302,6 +311,7 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             KillTimer(hwnd, audioTimerId);
             KillTimer(hwnd, dragTimerId);
             KillTimer(hwnd, animationTimerId);
+            KillTimer(hwnd, peekTimerId);
             PostQuitMessage(EXIT_SUCCESS);
             return 0;
 
@@ -447,6 +457,10 @@ void Application::beginDrag(POINT grab) {
     RECT screen{};
     GetWindowRect(m_widget.hwnd(), &screen);
     m_drag = Drag{.grab = grab};
+    // The window under the hook and the bubble is about to be replaced.
+    m_wheelHook.reset();
+    m_peekHoverSince = 0;
+    updateQueuePeek();
     m_model.hover.reset();
     m_model.hoverProgress = 0.0f;
 
@@ -647,6 +661,7 @@ void Application::onMediaChanged() {
         m_links.reset();
         m_linksRetries = 0;
         m_artworkRequested.clear();
+        forgetUpNext();
         if (now.available && m_spotify && m_spotify->connected()) {
             m_spotify->requestNowPlaying();
         }
@@ -678,7 +693,7 @@ bool Application::applyArtworkFallback() {
         m_links->artworkUrl.empty()) {
         return false;
     }
-    if (std::optional<spotify::Artwork> artwork = m_spotify->artwork(); artwork && artwork->url == m_links->artworkUrl) {
+    if (std::optional<spotify::Artwork> artwork = m_spotify->artwork(m_links->artworkUrl)) {
         log::info("cover from the Web API ({} bytes)", artwork->bytes.size());
         setCover(std::move(artwork->bytes));
         return true;
@@ -766,6 +781,7 @@ void Application::onWidgetClick(POINT position) {
         case interaction::Zone::Next:
             m_media->send(media::TransportCommand::Next);
             m_lastTextChangeTick = GetTickCount64();
+            forgetUpNext();  // That track is what plays now; the bubble returns with the new next.
             break;
         case interaction::Zone::Volume:
             toggleVolumeFlyout();
@@ -843,16 +859,80 @@ void Application::toggleVolumeFlyout() {
         log::info("volume: Spotify has no audio session");
         return;
     }
+    m_volumeFlyout->open(zoneOnScreen(m_widgetLayout.volume), m_widgetDpi, state->level, state->muted);
+}
+
+// A widget zone in screen pixels, full widget height.
+RECT Application::zoneOnScreen(const render::RectF& zone) const {
     RECT widget{};
     GetWindowRect(m_widget.hwnd(), &widget);
-    const UINT dpi = m_widgetDpi;
-    const RECT anchor{
-        .left = widget.left + dipToPixels(m_widgetLayout.volume.left, dpi),
+    return RECT{
+        .left = widget.left + dipToPixels(zone.left, m_widgetDpi),
         .top = widget.top,
-        .right = widget.left + dipToPixels(m_widgetLayout.volume.right, dpi),
+        .right = widget.left + dipToPixels(zone.right, m_widgetDpi),
         .bottom = widget.bottom,
     };
-    m_volumeFlyout->open(anchor, dpi, state->level, state->muted);
+}
+
+void Application::onWheel(int delta) {
+    const std::optional<audio::VolumeState> state = m_volume.read();
+    if (!state) {
+        return;
+    }
+    const float level =
+        std::clamp(state->level + config::volumeStep * static_cast<float>(delta) / WHEEL_DELTA, 0.0f, 1.0f);
+    const bool unmute = state->muted && delta > 0;
+    if (unmute) {
+        m_volume.setMuted(false);
+    }
+    m_volume.setLevel(level);
+    m_model.volumeOsdSince = GetTickCount64();
+    showVolume(audio::VolumeState{.level = level, .muted = state->muted && !unmute});
+    repaintWidget();
+}
+
+// Shows the bubble once the pointer has rested on "next" for a moment and
+// the queue has answered; hides it otherwise.
+void Application::updateQueuePeek() {
+    const bool resting =
+        m_peekHoverSince != 0 && GetTickCount64() - m_peekHoverSince >= config::queuePeekDelayMs;
+    if (!resting || !m_upNextKnown || !m_upNext || !m_spotify) {
+        if (m_queuePeek && !resting) {
+            m_queuePeek->hide();
+        }
+        return;
+    }
+    if (!m_queuePeek) {
+        Result<std::unique_ptr<overlay::QueuePeek>> peek = overlay::QueuePeek::create(m_instance);
+        if (!peek) {
+            log::error("queue peek unavailable: {}", peek.error().describe());
+            return;
+        }
+        m_queuePeek = std::move(peek.value());
+    }
+    overlay::QueuePeek::Content content{
+        .label = strings().upNext.wide,
+        .title = m_upNext->name,
+        .subtitle = m_upNext->artist,
+    };
+    if (std::optional<spotify::Artwork> artwork = m_spotify->artwork(m_upNext->artworkUrl)) {
+        content.cover = std::move(artwork->bytes);
+    }
+    m_queuePeek->show(zoneOnScreen(m_widgetLayout.next), m_widgetDpi, content);
+}
+
+// The queue moved on (a new track, or "next" clicked): ask again if the
+// pointer is still waiting on the button.
+void Application::forgetUpNext() {
+    m_upNext.reset();
+    m_upNextKnown = false;
+    m_queueRequest = 0;
+    if (m_queuePeek) {
+        m_queuePeek->hide();
+    }
+    if (m_peekHoverSince != 0 && m_spotify && m_spotify->connected()) {
+        m_queueRequest = m_spotify->requestQueue();
+    }
 }
 
 void Application::refreshVolume() {
@@ -906,10 +986,38 @@ void Application::onPointerMove(POINT position) {
         repaintWidget();
     }
     setHoverFading(true);
+
+    if (!m_wheelHook) {
+        const HWND messageWindow = m_messageWindow.get();
+        const HWND widget = m_widget.hwnd();
+        m_wheelHook = std::make_unique<interaction::WheelHook>([messageWindow, widget](POINT screen, int delta) {
+            RECT bounds{};
+            if (!GetWindowRect(widget, &bounds) || !PtInRect(&bounds, screen)) {
+                return false;
+            }
+            PostMessageW(messageWindow, WM_THRENODY_WHEEL, static_cast<WPARAM>(static_cast<INT_PTR>(delta)), 0);
+            return true;
+        });
+    }
+
+    const bool overNext = zone == render::Zone::Next;
+    if (overNext && m_peekHoverSince == 0) {
+        m_peekHoverSince = GetTickCount64();
+        if (!m_upNextKnown && m_queueRequest == 0 && m_spotify && m_spotify->connected()) {
+            m_queueRequest = m_spotify->requestQueue();
+        }
+        SetTimer(m_messageWindow.get(), peekTimerId, config::queuePeekDelayMs, nullptr);
+    } else if (!overNext && m_peekHoverSince != 0) {
+        m_peekHoverSince = 0;
+        updateQueuePeek();
+    }
 }
 
 void Application::onPointerLeave() {
     m_model.hover.reset();
+    m_wheelHook.reset();
+    m_peekHoverSince = 0;
+    updateQueuePeek();
     setHoverFading(true);
     repaintWidget();
 }
@@ -1090,6 +1198,22 @@ void Application::onSpotifyChanged() {
         if (applyArtworkFallback()) {
             repaintWidget();
         }
+        // The queue answered, or the next track's cover arrived.
+        if (m_queueRequest != 0) {
+            if (const std::optional<spotify::QueueResult> queue = m_spotify->queue();
+                queue && queue->request == m_queueRequest) {
+                m_queueRequest = 0;
+                m_upNext = queue->next;
+                m_upNextKnown = true;
+                if (m_upNext) {
+                    log::info("up next: {} / {}", text::toUtf8(m_upNext->name), text::toUtf8(m_upNext->artist));
+                    m_spotify->requestArtwork(m_upNext->artworkUrl);
+                } else {
+                    log::info("up next: nothing queued");
+                }
+            }
+        }
+        updateQueuePeek();
     }
     publishSpotifyStatus();
 }

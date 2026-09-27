@@ -32,6 +32,20 @@ struct TrackLinks {
     std::wstring artworkUrl;  // Album art, the widget's fallback when SMTC has none.
 };
 
+// The first track in the user's queue: what "next" will play.
+struct QueuedTrack {
+    std::wstring name;
+    std::wstring artist;  // For a podcast episode, the show.
+    std::wstring artworkUrl;
+};
+
+// Answer to one requestQueue(): `next` is empty when the queue is empty or
+// could not be read.
+struct QueueResult {
+    std::uint32_t request{};
+    std::optional<QueuedTrack> next;
+};
+
 // Downloaded album art, tagged with the URL it came from.
 struct Artwork {
     std::wstring url;
@@ -39,9 +53,10 @@ struct Artwork {
 };
 
 // Spotify Web API client: authorisation code flow with PKCE (no client
-// secret), token refresh, and the one call the widget needs, "currently
-// playing". Network work runs on the WinRT thread pool; every state change
-// calls the handler, and the UI thread reads snapshots.
+// secret), token refresh, and the calls the widget needs: "currently
+// playing", the queue, and album art. Network work runs on the WinRT thread
+// pool; every state change calls the handler, and the UI thread reads
+// snapshots.
 class SpotifyClient {
 public:
     using ChangeHandler = std::function<void()>;
@@ -66,9 +81,15 @@ public:
     void requestNowPlaying();
     [[nodiscard]] std::optional<TrackLinks> links() const;
 
-    // Downloads `url` (a TrackLinks::artworkUrl); result appears in `artwork()`.
+    // Fetches the queue; the answer appears in `queue()` tagged with the
+    // returned request number, so a stale answer can be told apart.
+    std::uint32_t requestQueue();
+    [[nodiscard]] std::optional<QueueResult> queue() const;
+
+    // Downloads `url` (an artworkUrl) unless it is among the few kept; the
+    // result appears in `artwork(url)`.
     void requestArtwork(std::wstring url);
-    [[nodiscard]] std::optional<Artwork> artwork() const;
+    [[nodiscard]] std::optional<Artwork> artwork(const std::wstring& url) const;
 
     struct Shared;
 

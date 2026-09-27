@@ -5,9 +5,11 @@
 #include "dsp/BeatDetector.h"
 #include "dsp/SpectrumAnalyzer.h"
 #include "interaction/HitTest.h"
+#include "interaction/WheelHook.h"
 #include "media/MediaSession.h"
 #include "overlay/KeyboardHook.h"
 #include "overlay/LockKeyOverlay.h"
+#include "overlay/QueuePeek.h"
 #include "overlay/VolumeFlyout.h"
 #include "render/LayeredSurface.h"
 #include "render/WidgetLayout.h"
@@ -86,6 +88,12 @@ private:
     void toggleVolumeFlyout();
     void refreshVolume();
     void showVolume(const std::optional<audio::VolumeState>& state);
+    void onWheel(int delta);
+
+    // "Up next" bubble over the next button, fed by the Web API queue.
+    void updateQueuePeek();
+    void forgetUpNext();
+    [[nodiscard]] RECT zoneOnScreen(const render::RectF& zone) const;
     void toggleColorMode();
     void saveSettings();
 
@@ -168,6 +176,12 @@ private:
     std::unique_ptr<overlay::LockKeyOverlay> m_lockOverlay;
     std::unique_ptr<overlay::VolumeFlyout> m_volumeFlyout;  // Created on first use.
     std::unique_ptr<taskbar::DockPreview> m_dockPreview;    // Created on first drag.
+    std::unique_ptr<overlay::QueuePeek> m_queuePeek;        // Created on first peek.
+    std::unique_ptr<interaction::WheelHook> m_wheelHook;    // Only while the pointer is over the widget.
+    std::uint32_t m_queueRequest{};                         // In flight; 0 when none.
+    std::optional<spotify::QueuedTrack> m_upNext;
+    bool m_upNextKnown{false};
+    ULONGLONG m_peekHoverSince{};                           // Pointer on "next" since; 0 when not.
     struct Drag {
         POINT grab{};  // Cursor offset inside the widget, pixels.
         bool overDock{false};

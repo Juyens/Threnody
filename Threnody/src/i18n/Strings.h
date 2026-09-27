@@ -18,6 +18,9 @@ struct Strings {
     Text placeholderTitle;
     Text placeholderArtist;
 
+    // Bubble over the next button showing the queued track.
+    Text upNext;
+
     // Tray menu.
     Text menuSettings;
     Text menuQuit;
@@ -71,6 +74,7 @@ struct Strings {
 inline constexpr Strings spanish{
     .placeholderTitle = {L"Spotify", "Spotify"},
     .placeholderArtist = {L"Nada en reproducción", "Nada en reproducción"},
+    .upNext = {L"A continuación", "A continuación"},
     .menuSettings = {L"Ajustes…", "Ajustes…"},
     .menuQuit = {L"Salir", "Salir"},
     .capsLock = {L"Bloq Mayús", "Bloq Mayús"},
@@ -117,6 +121,7 @@ inline constexpr Strings spanish{
 inline constexpr Strings english{
     .placeholderTitle = {L"Spotify", "Spotify"},
     .placeholderArtist = {L"Nothing playing", "Nothing playing"},
+    .upNext = {L"Up next", "Up next"},
     .menuSettings = {L"Settings…", "Settings…"},
     .menuQuit = {L"Quit", "Quit"},
     .capsLock = {L"Caps Lock", "Caps Lock"},
