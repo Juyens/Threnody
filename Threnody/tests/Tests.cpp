@@ -4,6 +4,7 @@
 #include "Config.h"
 #include "color/ColorSpace.h"
 #include "color/DominantColor.h"
+#include "dsp/BeatDetector.h"
 #include "dsp/SpectrumAnalyzer.h"
 #include "media/SourceAppId.h"
 #include "render/WidgetLayout.h"
@@ -148,6 +149,25 @@ void testLayout() {
     check(wide.title.width() <= threnody::config::textMaxWidthDip, "text column is clamped");
 }
 
+void testBeatDetector() {
+    threnody::dsp::BeatDetector detector;
+    std::array<float, threnody::config::spectrumBarCount> bands{};
+    bands.fill(0.1f);
+    float pulse = 0.0f;
+    for (int i = 0; i < 60; ++i) {
+        pulse = detector.update(bands, 33.0f);
+    }
+    check(pulse == 0.0f, "quiet bass does not pulse");
+    bands[0] = bands[1] = bands[2] = 0.8f;
+    check(detector.update(bands, 33.0f) == 1.0f, "a kick pulses");
+    const float after = detector.update(bands, 33.0f);
+    check(after > 0.0f && after < 1.0f, "the pulse fades");
+    for (int i = 0; i < 60; ++i) {
+        pulse = detector.update(bands, 33.0f);
+    }
+    check(pulse < 0.05f, "a steady loud bass settles instead of pulsing");
+}
+
 void testSettingsRoundTrip() {
     using namespace threnody;
     const std::filesystem::path file = std::filesystem::temp_directory_path() / L"threnody-test-settings.json";
@@ -215,6 +235,7 @@ int main() {
     testOklch();
     testSpectrum();
     testLayout();
+    testBeatDetector();
     testSettingsRoundTrip();
     testLoopbackListener();
     std::printf("%d checks, %d failures\n", checks, failures);

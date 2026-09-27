@@ -31,6 +31,7 @@ constexpr UINT_PTR hoverTimerId = 3;
 constexpr unsigned hoverFrameMs = 16;
 constexpr UINT_PTR audioTimerId = 4;
 constexpr UINT_PTR dragTimerId = 5;
+constexpr UINT_PTR animationTimerId = 6;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
@@ -258,6 +259,8 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 onAudioTick();
             } else if (wParam == dragTimerId) {
                 onDragFrame();
+            } else if (wParam == animationTimerId) {
+                repaintWidget();
             }
             return 0;
 
@@ -297,6 +300,8 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             KillTimer(hwnd, spectrumTimerId);
             KillTimer(hwnd, hoverTimerId);
             KillTimer(hwnd, audioTimerId);
+            KillTimer(hwnd, dragTimerId);
+            KillTimer(hwnd, animationTimerId);
             PostQuitMessage(EXIT_SUCCESS);
             return 0;
 
@@ -570,6 +575,17 @@ void Application::repaintWidget() {
         return;
     }
     m_widget.show();
+
+    // Frames keep coming only while the renderer has something moving.
+    const bool animating = m_renderer->animating(m_model, m_widgetLayout);
+    if (animating != m_animating && m_messageWindow) {
+        m_animating = animating;
+        if (animating) {
+            SetTimer(m_messageWindow.get(), animationTimerId, config::animationFrameMs, nullptr);
+        } else {
+            KillTimer(m_messageWindow.get(), animationTimerId);
+        }
+    }
 }
 
 void Application::onMediaChanged() {
@@ -1205,6 +1221,8 @@ void Application::setSpectrumRunning(bool running) {
         SetTimer(m_messageWindow.get(), spectrumTimerId, config::spectrumFrameMs, nullptr);
     } else {
         KillTimer(m_messageWindow.get(), spectrumTimerId);
+        m_beat.reset();
+        m_model.pulse = 0.0f;
     }
 }
 
@@ -1287,6 +1305,7 @@ void Application::onSpectrumFrame() {
         m_analyzer.decay();
     }
     m_model.spectrum = m_analyzer.bands();
+    m_model.pulse = m_beat.update(m_model.spectrum, static_cast<float>(config::spectrumFrameMs));
 
     if (m_model.colorMode != ColorMode::Track) {
         const float step = static_cast<float>(config::spectrumFrameMs) / (1000.0f * config::rainbowCycleSeconds);

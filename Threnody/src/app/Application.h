@@ -2,6 +2,7 @@
 
 #include "audio/ProcessLoopbackCapture.h"
 #include "audio/SpotifyVolume.h"
+#include "dsp/BeatDetector.h"
 #include "dsp/SpectrumAnalyzer.h"
 #include "interaction/HitTest.h"
 #include "media/MediaSession.h"
@@ -149,6 +150,8 @@ private:
     bool m_captureFailureLogged{false};
     bool m_captureRunningLogged{false};
     dsp::SpectrumAnalyzer m_analyzer;
+    dsp::BeatDetector m_beat;
+    bool m_animating{false};  // The renderer has motion of its own; frames run.
     std::array<float, dsp::SpectrumAnalyzer::fftSize> m_frame{};
     bool m_spectrumRunning{false};
     bool m_smtcPlaying{false};

@@ -30,6 +30,20 @@ constexpr float eased(float t) noexcept {
     return 1.0f - u * u * u;
 }
 
+constexpr float easeInOutCubic(float t) noexcept {
+    t = std::clamp(t, 0.0f, 1.0f);
+    return t < 0.5f ? 4.0f * t * t * t : 1.0f - (-2.0f * t + 2.0f) * (-2.0f * t + 2.0f) * (-2.0f * t + 2.0f) / 2.0f;
+}
+
+// How far a transition started at `start` has come, in [0, 1]; 1 when none
+// is running.
+float progress(ULONGLONG start, unsigned durationMs) noexcept {
+    if (start == 0) {
+        return 1.0f;
+    }
+    return std::clamp(static_cast<float>(GetTickCount64() - start) / static_cast<float>(durationMs), 0.0f, 1.0f);
+}
+
 // A very wide layout box: measures the natural width of a line.
 constexpr float measureWidth = 4096.0f;
 
@@ -144,14 +158,24 @@ Result<void> WidgetRenderer::updateTextLine(TextLine& line, const std::wstring& 
 }
 
 Result<WidgetLayout> WidgetRenderer::layout(const WidgetModel& model, float heightDip) {
+    // New text: keep the old lines around to slide them out.
+    if (m_title.layout && (model.title != m_title.text || model.artist != m_artist.text)) {
+        m_titleFrom = m_title;
+        m_artistFrom = m_artist;
+        m_textSlideStart = GetTickCount64();
+    }
+
     // Measure at unlimited width first, lay out, then rebuild the layouts at
-    // the width they actually get so trimming applies.
+    // the width they actually get so trimming applies. The unlimited ones are
+    // kept for scrolling.
     if (const Result<void> r = updateTextLine(m_title, model.title, measureWidth, m_fonts.title()); !r) {
         return r.error();
     }
     if (const Result<void> r = updateTextLine(m_artist, model.artist, measureWidth, m_fonts.artist()); !r) {
         return r.error();
     }
+    m_titleNatural = m_title.layout;
+    m_artistNatural = m_artist.layout;
 
     const WidgetLayout result = WidgetLayout::compute(
         heightDip, std::ceil(m_title.metrics.widthIncludingTrailingWhitespace), m_title.metrics.height,
@@ -167,27 +191,19 @@ Result<WidgetLayout> WidgetRenderer::layout(const WidgetModel& model, float heig
 }
 
 void WidgetRenderer::releaseDeviceResources() noexcept {
-    m_cover.reset();  // Bitmaps belong to the target.
+    m_cover.reset();  // Bitmaps and bitmap brushes belong to the target.
+    m_coverFrom.reset();
+    m_backdrop.reset();
+    m_backdropFrom.reset();
     m_brush = nullptr;
     m_target = nullptr;
     m_boundDc = nullptr;
     m_boundSize = {};
 }
 
-// Decodes the model's cover with WIC, scales it so the shorter side matches
-// the cover square, and uploads it as a Direct2D bitmap. Cached by version
-// and size, so this runs once per track.
-Result<void> WidgetRenderer::ensureCover(const WidgetModel& model, const RectF& zone) {
-    if (model.coverImage.empty()) {
-        m_cover.reset();
-        return {};
-    }
-    const int sizePx = std::max(1, static_cast<int>(std::lround(zone.width() * static_cast<float>(m_dpi) / 96.0f)));
-    if (m_cover && m_cover->version == model.coverVersion && m_cover->sizePx == sizePx) {
-        return {};
-    }
-    m_cover.reset();
-
+// The first frame of the model's encoded cover. It reads straight from the
+// model's bytes, so use it before the model changes.
+Result<winrt::com_ptr<IWICBitmapFrameDecode>> WidgetRenderer::decodeCover(const WidgetModel& model) {
     IWICImagingFactory& wic = *m_graphics.wic;
     winrt::com_ptr<IWICStream> stream;
     HRESULT hr = wic.CreateStream(stream.put());
@@ -211,6 +227,44 @@ Result<void> WidgetRenderer::ensureCover(const WidgetModel& model, const RectF& 
     if (FAILED(hr)) {
         return Error::fromHResult(hr, "IWICBitmapDecoder::GetFrame");
     }
+    return frame;
+}
+
+// Decodes the model's cover with WIC, scales it so the shorter side matches
+// the cover square, and uploads it as a Direct2D bitmap. Cached by version
+// and size, so this runs once per track. A different image (not just a new
+// size) starts the flip from whatever was showing.
+Result<void> WidgetRenderer::ensureCover(const WidgetModel& model, const RectF& zone) {
+    const bool changed = model.coverImage.empty() ? m_cover.has_value()
+                                                  : !m_cover || m_cover->version != model.coverVersion;
+    if (changed) {
+        // Mid-flip, the old face may still be showing: then only the new
+        // face changes, and the turn carries on. This is what makes the
+        // brief placeholder between two tracks invisible.
+        if (progress(m_coverFlipStart, config::coverFlipMs) >= 0.5f) {
+            m_coverFrom = std::move(m_cover);
+            m_coverFlipStart = GetTickCount64();
+        }
+        m_cover.reset();
+    }
+    if (model.coverImage.empty()) {
+        return {};
+    }
+    const int sizePx = std::max(1, static_cast<int>(std::lround(zone.width() * static_cast<float>(m_dpi) / 96.0f)));
+    if (m_cover && m_cover->sizePx == sizePx) {
+        return {};
+    }
+    // Without a bitmap this stands for the placeholder, so an image that
+    // fails to decode is not retried (and re-flipped) on every frame.
+    m_cover = Cover{.version = model.coverVersion, .sizePx = sizePx};
+
+    Result<winrt::com_ptr<IWICBitmapFrameDecode>> decoded = decodeCover(model);
+    if (!decoded) {
+        return decoded.error();
+    }
+    IWICImagingFactory& wic = *m_graphics.wic;
+    const winrt::com_ptr<IWICBitmapFrameDecode> frame = std::move(decoded.value());
+    HRESULT hr = S_OK;
 
     UINT width = 0;
     UINT height = 0;
@@ -255,6 +309,73 @@ Result<void> WidgetRenderer::ensureCover(const WidgetModel& model, const RectF& 
     const float top = (static_cast<float>(scaledHeight) - side) / 2.0f;
     cover.source = {left, top, left + side, top + side};
     m_cover = std::move(cover);
+    return {};
+}
+
+// Blurs the cover the cheap way: shrink it to a few pixels, then stretch it
+// back over the whole panel with a cubic filter, which leaves only its broad
+// colours. Squashing the square cover into the wide panel is fine at that
+// point. Built once per track and panel size; a new image cross-fades in.
+Result<void> WidgetRenderer::ensureBackdrop(const WidgetModel& model, const WidgetLayout& layout) {
+    const bool changed = model.coverImage.empty() ? m_backdrop.has_value()
+                                                  : !m_backdrop || m_backdrop->version != model.coverVersion;
+    if (changed) {
+        if (progress(m_backdropFadeStart, config::coverFlipMs) >= 0.5f) {
+            m_backdropFrom = std::move(m_backdrop);
+            m_backdropFadeStart = GetTickCount64();
+        }
+        m_backdrop.reset();
+    }
+    if (model.coverImage.empty()) {
+        return {};
+    }
+    const int widthDip = std::max(1, static_cast<int>(std::lround(layout.width)));
+    const int heightDip = std::max(1, static_cast<int>(std::lround(layout.height)));
+    if (m_backdrop && m_backdrop->widthDip == widthDip && m_backdrop->heightDip == heightDip) {
+        return {};
+    }
+    m_backdrop = Backdrop{.version = model.coverVersion, .widthDip = widthDip, .heightDip = heightDip};
+
+    Result<winrt::com_ptr<IWICBitmapFrameDecode>> decoded = decodeCover(model);
+    if (!decoded) {
+        return decoded.error();
+    }
+    IWICImagingFactory& wic = *m_graphics.wic;
+    winrt::com_ptr<IWICBitmapScaler> shrink;
+    winrt::com_ptr<IWICBitmapScaler> stretch;
+    winrt::com_ptr<IWICFormatConverter> converter;
+    HRESULT hr = wic.CreateBitmapScaler(shrink.put());
+    if (SUCCEEDED(hr)) {
+        hr = shrink->Initialize(decoded.value().get(), config::backdropSamplePx, config::backdropSamplePx,
+                                WICBitmapInterpolationModeFant);
+    }
+    if (SUCCEEDED(hr)) {
+        hr = wic.CreateBitmapScaler(stretch.put());
+    }
+    if (SUCCEEDED(hr)) {
+        hr = stretch->Initialize(shrink.get(), static_cast<UINT>(widthDip), static_cast<UINT>(heightDip),
+                                 WICBitmapInterpolationModeHighQualityCubic);
+    }
+    if (SUCCEEDED(hr)) {
+        hr = wic.CreateFormatConverter(converter.put());
+    }
+    if (SUCCEEDED(hr)) {
+        hr = converter->Initialize(stretch.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
+                                   0.0, WICBitmapPaletteTypeMedianCut);
+    }
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "backdrop scaling");
+    }
+    winrt::com_ptr<ID2D1Bitmap> bitmap;
+    hr = m_target->CreateBitmapFromWicBitmap(converter.get(), nullptr, bitmap.put());
+    if (SUCCEEDED(hr)) {
+        const D2D1_BITMAP_BRUSH_PROPERTIES properties{D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP,
+                                                      D2D1_BITMAP_INTERPOLATION_MODE_LINEAR};
+        hr = m_target->CreateBitmapBrush(bitmap.get(), properties, m_backdrop->brush.put());
+    }
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "backdrop bitmap");
+    }
     return {};
 }
 
@@ -307,11 +428,19 @@ Result<void> WidgetRenderer::draw(LayeredSurface& surface, const WidgetModel& mo
         return ready;
     }
 
+    // The marquee's clock runs from when the pointer arrived.
+    if (!model.hover) {
+        m_hoverSince = 0;
+    } else if (m_hoverSince == 0) {
+        m_hoverSince = GetTickCount64();
+    }
+
     m_target->BeginDraw();
     m_target->SetTransform(D2D1::Matrix3x2F::Identity());
     m_target->Clear(D2D1_COLOR_F{0.0f, 0.0f, 0.0f, 0.0f});
 
     drawBackground(layout, model);
+    drawPulse(layout, model);
     drawHoverHighlight(layout, model);
     drawCover(layout, model);
     drawText(layout);
@@ -343,6 +472,9 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
     fill(model.floating ? mix(config::floatingBackgroundColor, config::floatingHoverBackgroundColor, hover)
                         : mix(config::backgroundColor, config::hoverBackgroundColor, hover));
     m_target->FillRoundedRectangle(shape, m_brush.get());
+    if (model.floating) {
+        drawBackdrop(layout, model, shape);
+    }
 
     const D2D1_ROUNDED_RECT border{
         .rect = {0.5f, 0.5f, layout.width - 0.5f, layout.height - 0.5f},
@@ -352,6 +484,49 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
     fill(model.floating ? mix(config::floatingBorderColor, config::floatingHoverBorderColor, hover)
                         : mix(config::backgroundBorderColor, config::hoverBorderColor, hover));
     m_target->DrawRoundedRectangle(border, m_brush.get(), 1.0f);
+}
+
+// The blurred cover under a shade, cross-fading when the cover changes.
+void WidgetRenderer::drawBackdrop(const WidgetLayout& layout, const WidgetModel& model,
+                                  const D2D1_ROUNDED_RECT& shape) {
+    // On failure the plain panel shows; the empty backdrop stops retries.
+    static_cast<void>(ensureBackdrop(model, layout));
+    const float fade = easeInOutCubic(progress(m_backdropFadeStart, config::coverFlipMs));
+    float shown = 0.0f;
+    if (m_backdropFrom && m_backdropFrom->brush && fade < 1.0f) {
+        m_backdropFrom->brush->SetOpacity(1.0f - fade);
+        m_target->FillRoundedRectangle(shape, m_backdropFrom->brush.get());
+        shown = 1.0f - fade;
+    }
+    if (m_backdrop && m_backdrop->brush) {
+        m_backdrop->brush->SetOpacity(fade);
+        m_target->FillRoundedRectangle(shape, m_backdrop->brush.get());
+        shown = std::max(shown, fade);
+    }
+    if (shown > 0.0f) {
+        const Color shade = mix(config::backdropShadeColor, config::backdropHoverShadeColor, eased(model.hoverProgress));
+        fill(shade.withAlpha(shade.a * shown));
+        m_target->FillRoundedRectangle(shape, m_brush.get());
+    }
+}
+
+// On a kick the panel takes a tint of the bars' colour and its border lights
+// up in it, fading out over a fraction of a second.
+void WidgetRenderer::drawPulse(const WidgetLayout& layout, const WidgetModel& model) {
+    const float pulse = std::clamp(model.pulse, 0.0f, 1.0f);
+    if (pulse <= 0.0f) {
+        return;
+    }
+    const Color color = barColor(model, 0);
+    const float inset = config::pulseBorderWidthDip / 2.0f;
+    fill(color.withAlpha(config::pulseTintAlpha * pulse));
+    m_target->FillRoundedRectangle(
+        {{0.0f, 0.0f, layout.width, layout.height}, config::backgroundCornerRadiusDip, config::backgroundCornerRadiusDip},
+        m_brush.get());
+    fill(color.withAlpha(config::pulseBorderAlpha * pulse));
+    m_target->DrawRoundedRectangle({{inset, inset, layout.width - inset, layout.height - inset},
+                                    config::backgroundCornerRadiusDip, config::backgroundCornerRadiusDip},
+                                   m_brush.get(), config::pulseBorderWidthDip);
 }
 
 // Rounded highlight behind whatever the pointer is over, like a transparent
@@ -393,14 +568,25 @@ void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& mo
         .radiusY = config::coverCornerRadiusDip,
     };
 
-    if (const Result<void> ready = ensureCover(model, layout.cover); !ready) {
-        // Drawing continues without the image; the placeholder stands in.
-        // Logged by the caller through the frame result would be noisy per
-        // frame, so failures simply fall back here.
-        m_cover.reset();
-    }
+    // A failure leaves a bitmap-less cover, drawn as the placeholder; logging
+    // it here would repeat every frame.
+    static_cast<void>(ensureCover(model, layout.cover));
 
-    if (!m_cover) {
+    // The flip: the old face narrows to an edge, the new one opens out.
+    const float turn = easeInOutCubic(progress(m_coverFlipStart, config::coverFlipMs));
+    if (turn >= 1.0f) {
+        drawCoverFace(m_cover, shape);
+        return;
+    }
+    const float squeeze = std::cos(turn * std::numbers::pi_v<float>);  // 1 -> 0 -> -1
+    const D2D1_POINT_2F centre{(shape.rect.left + shape.rect.right) / 2.0f, (shape.rect.top + shape.rect.bottom) / 2.0f};
+    m_target->SetTransform(D2D1::Matrix3x2F::Scale(std::max(std::abs(squeeze), 0.001f), 1.0f, centre));
+    drawCoverFace(squeeze > 0.0f ? m_coverFrom : m_cover, shape);
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
+void WidgetRenderer::drawCoverFace(const std::optional<Cover>& face, const D2D1_ROUNDED_RECT& shape) {
+    if (!face || !face->bitmap) {
         fill(config::coverPlaceholderColor);
         m_target->FillRoundedRectangle(shape, m_brush.get());
         return;
@@ -408,8 +594,7 @@ void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& mo
 
     winrt::com_ptr<ID2D1RoundedRectangleGeometry> clip;
     if (FAILED(m_graphics.d2d->CreateRoundedRectangleGeometry(shape, clip.put()))) {
-        m_target->DrawBitmap(m_cover->bitmap.get(), shape.rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
-                             m_cover->source);
+        m_target->DrawBitmap(face->bitmap.get(), shape.rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, face->source);
         return;
     }
 
@@ -417,22 +602,99 @@ void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& mo
     layer.geometricMask = clip.get();
     layer.maskAntialiasMode = D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
     m_target->PushLayer(layer, nullptr);
-    m_target->DrawBitmap(m_cover->bitmap.get(), shape.rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
-                         m_cover->source);
+    m_target->DrawBitmap(face->bitmap.get(), shape.rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, face->source);
     m_target->PopLayer();
 }
 
+// After a track change the old lines slide up and fade while the new ones
+// rise into place; everything stays inside the text column.
 void WidgetRenderer::drawText(const WidgetLayout& layout) {
-    if (m_title.layout) {
-        fill(config::titleColor);
-        m_target->DrawTextLayout(D2D1_POINT_2F{layout.title.left, layout.title.top}, m_title.layout.get(),
-                                 m_brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    const float slide = easeInOutCubic(progress(m_textSlideStart, config::textSlideMs));
+    const D2D1_RECT_F column{layout.title.left, 0.0f, std::max(layout.title.right, layout.artist.right), layout.height};
+    m_target->PushAxisAlignedClip(column, D2D1_ANTIALIAS_MODE_ALIASED);
+    if (slide < 1.0f) {
+        const float lift = -config::textSlideDip * slide;
+        drawTextLine(m_titleFrom, nullptr, layout.title, config::titleColor, 1.0f - slide, lift);
+        drawTextLine(m_artistFrom, nullptr, layout.artist, config::artistColor, 1.0f - slide, lift);
     }
-    if (m_artist.layout) {
-        fill(config::artistColor);
-        m_target->DrawTextLayout(D2D1_POINT_2F{layout.artist.left, layout.artist.top}, m_artist.layout.get(),
-                                 m_brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    const float lift = config::textSlideDip * (1.0f - slide);
+    drawTextLine(m_title, m_titleNatural, layout.title, config::titleColor, slide, lift);
+    drawTextLine(m_artist, m_artistNatural, layout.artist, config::artistColor, slide, lift);
+    m_target->PopAxisAlignedClip();
+}
+
+// How far a line that does not fit has scrolled, or a negative value when it
+// is not scrolling (it fits, or the pointer is elsewhere). Zero during the
+// pause before it starts: the whole line shows, faded at the edge.
+float WidgetRenderer::marqueeOffset(const TextLine& line, const winrt::com_ptr<IDWriteTextLayout>& natural,
+                                    float boxWidth) const noexcept {
+    if (m_hoverSince == 0 || !natural || !line.layout) {
+        return -1.0f;
     }
+    DWRITE_TEXT_METRICS metrics{};
+    natural->GetMetrics(&metrics);
+    if (metrics.widthIncludingTrailingWhitespace <= boxWidth + 0.5f) {
+        return -1.0f;
+    }
+    const auto elapsed = static_cast<float>(GetTickCount64() - m_hoverSince);
+    if (elapsed < static_cast<float>(config::marqueeDelayMs)) {
+        return 0.0f;
+    }
+    const float travelled =
+        (elapsed - static_cast<float>(config::marqueeDelayMs)) / 1000.0f * config::marqueeSpeedDipPerSecond;
+    return std::fmod(travelled, metrics.widthIncludingTrailingWhitespace + config::marqueeGapDip);
+}
+
+void WidgetRenderer::drawTextLine(const TextLine& line, const winrt::com_ptr<IDWriteTextLayout>& natural,
+                                  const RectF& box, const Color& color, float opacity, float lift) {
+    if (!line.layout || opacity <= 0.0f) {
+        return;
+    }
+    fill(color.withAlpha(color.a * opacity));
+    const float y = box.top + lift;
+    const float offset = marqueeOffset(line, natural, box.width());
+    if (offset < 0.0f) {
+        m_target->DrawTextLayout({box.left, y}, line.layout.get(), m_brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        return;
+    }
+
+    // Scrolling: the untrimmed line twice, one gap apart, so it loops; the
+    // edges fade instead of cutting letters (the left one once it moves).
+    const float fade = std::min(config::marqueeFadeDip / box.width(), 0.5f);
+    const D2D1_GRADIENT_STOP stops[] = {
+        {0.0f, {0.0f, 0.0f, 0.0f, offset > 0.0f ? 0.0f : 1.0f}},
+        {fade, {0.0f, 0.0f, 0.0f, 1.0f}},
+        {1.0f - fade, {0.0f, 0.0f, 0.0f, 1.0f}},
+        {1.0f, {0.0f, 0.0f, 0.0f, 0.0f}},
+    };
+    winrt::com_ptr<ID2D1GradientStopCollection> collection;
+    winrt::com_ptr<ID2D1LinearGradientBrush> mask;
+    if (FAILED(m_target->CreateGradientStopCollection(stops, 4, collection.put())) ||
+        FAILED(m_target->CreateLinearGradientBrush({{box.left, 0.0f}, {box.right, 0.0f}}, collection.get(),
+                                                   mask.put()))) {
+        m_target->DrawTextLayout({box.left, y}, line.layout.get(), m_brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        return;
+    }
+    DWRITE_TEXT_METRICS metrics{};
+    natural->GetMetrics(&metrics);
+    const float period = metrics.widthIncludingTrailingWhitespace + config::marqueeGapDip;
+
+    D2D1_LAYER_PARAMETERS layer = D2D1::LayerParameters({box.left, y, box.right, y + box.height()});
+    layer.opacityBrush = mask.get();
+    m_target->PushLayer(layer, nullptr);
+    m_target->DrawTextLayout({box.left - offset, y}, natural.get(), m_brush.get());
+    m_target->DrawTextLayout({box.left - offset + period, y}, natural.get(), m_brush.get());
+    m_target->PopLayer();
+}
+
+bool WidgetRenderer::animating(const WidgetModel& model, const WidgetLayout& layout) const noexcept {
+    if (progress(m_coverFlipStart, config::coverFlipMs) < 1.0f ||
+        progress(m_textSlideStart, config::textSlideMs) < 1.0f ||
+        (model.floating && progress(m_backdropFadeStart, config::coverFlipMs) < 1.0f)) {
+        return true;
+    }
+    return model.hover && (marqueeOffset(m_title, m_titleNatural, layout.title.width()) >= 0.0f ||
+                           marqueeOffset(m_artist, m_artistNatural, layout.artist.width()) >= 0.0f);
 }
 
 void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel& model) {
@@ -493,28 +755,33 @@ void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel&
     m_target->SetTransform(D2D1::Matrix3x2F::Identity());
 }
 
+Color WidgetRenderer::barColor(const WidgetModel& model, int bar) {
+    using namespace config;
+    if (model.colorMode == ColorMode::Rainbow) {
+        const float hue = 360.0f * model.rainbowPhase + static_cast<float>(bar) * rainbowHueSpanDegrees / spectrumBarCount;
+        return color::fromOklch({rainbowLightness, rainbowChroma, hue});
+    }
+    if (model.colorMode == ColorMode::TrackGradient) {
+        const float t = 2.0f * std::numbers::pi_v<float> *
+                        (model.rainbowPhase + static_cast<float>(bar) * gradientWaveSpan / spectrumBarCount);
+        const float wave = std::cos(t);  // +1 crest (light tint), -1 trough (deep shade).
+        color::Oklch lch = color::toOklch(model.accent);
+        lch.l = std::clamp(lch.l + gradientLightnessSpread * wave, gradientMinLightness, gradientMaxLightness);
+        lch.c *= 1.0f - gradientChromaFade * std::max(wave, 0.0f);
+        lch.h += gradientHueSpreadDegrees * wave;
+        return color::fromOklch(lch);
+    }
+    return model.accent;
+}
+
 void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel& model) {
     using namespace config;
     const RectF& zone = layout.visualizer;
     const float maxHeight = zone.height();
 
-    fill(model.accent);
     float x = zone.left;
     for (int i = 0; i < spectrumBarCount; ++i) {
-        if (model.colorMode == ColorMode::Rainbow) {
-            const float hue =
-                360.0f * model.rainbowPhase + static_cast<float>(i) * rainbowHueSpanDegrees / spectrumBarCount;
-            fill(color::fromOklch({rainbowLightness, rainbowChroma, hue}));
-        } else if (model.colorMode == ColorMode::TrackGradient) {
-            const float t = 2.0f * std::numbers::pi_v<float> *
-                            (model.rainbowPhase + static_cast<float>(i) * gradientWaveSpan / spectrumBarCount);
-            const float wave = std::cos(t);  // +1 crest (light tint), -1 trough (deep shade).
-            color::Oklch lch = color::toOklch(model.accent);
-            lch.l = std::clamp(lch.l + gradientLightnessSpread * wave, gradientMinLightness, gradientMaxLightness);
-            lch.c *= 1.0f - gradientChromaFade * std::max(wave, 0.0f);
-            lch.h += gradientHueSpreadDegrees * wave;
-            fill(color::fromOklch(lch));
-        }
+        fill(barColor(model, i));
         const float value = std::clamp(model.spectrum[static_cast<std::size_t>(i)], 0.0f, 1.0f);
         const float height = spectrumBaselineDip + value * (maxHeight - spectrumBaselineDip);
         const D2D1_ROUNDED_RECT bar{

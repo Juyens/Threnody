@@ -45,6 +45,9 @@ struct WidgetModel {
     Color accent{config::defaultAccentColor};
     float rainbowPhase{};
 
+    // Beat glow in [0, 1]: jumps to 1 on a kick in the bass, then fades.
+    float pulse{};
+
     // Pointer feedback: the zone under the pointer, and how far the whole
     // widget has faded toward its hovered look (0 = idle, 1 = hovered).
     std::optional<Zone> hover;

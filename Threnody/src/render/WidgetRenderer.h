@@ -29,6 +29,10 @@ public:
     [[nodiscard]] Result<void> draw(LayeredSurface& surface, const WidgetModel& model, const WidgetLayout& layout,
                                     UINT dpi);
 
+    // True while something on the widget moves by itself (a cover turning, a
+    // title sliding, text scrolling), so the owner keeps drawing frames.
+    [[nodiscard]] bool animating(const WidgetModel& model, const WidgetLayout& layout) const noexcept;
+
     // Shared factories, for callers that decode images or draw icons.
     [[nodiscard]] IWICImagingFactory& wic() const noexcept { return *m_graphics.wic; }
     [[nodiscard]] Graphics& graphics() noexcept { return m_graphics; }
@@ -50,23 +54,42 @@ private:
         D2D1_RECT_F source{};
     };
 
+    // The floating widget's backdrop: the cover blurred to the widget's size
+    // in DIPs, as a brush so it can fill the rounded panel.
+    struct Backdrop {
+        std::uint32_t version{};
+        int widthDip{};
+        int heightDip{};
+        winrt::com_ptr<ID2D1BitmapBrush> brush;
+    };
+
     WidgetRenderer(Graphics graphics, Fonts fonts);
 
     [[nodiscard]] Result<void> ensureTarget(const LayeredSurface& surface, UINT dpi);
     [[nodiscard]] Result<void> ensureGlyphs();
+    [[nodiscard]] Result<winrt::com_ptr<IWICBitmapFrameDecode>> decodeCover(const WidgetModel& model);
     [[nodiscard]] Result<void> ensureCover(const WidgetModel& model, const RectF& zone);
+    [[nodiscard]] Result<void> ensureBackdrop(const WidgetModel& model, const WidgetLayout& layout);
     [[nodiscard]] Result<void> updateTextLine(TextLine& line, const std::wstring& text, float maxWidth,
                                               IDWriteTextFormat& format);
     void releaseDeviceResources() noexcept;
 
     void drawBackground(const WidgetLayout& layout, const WidgetModel& model);
     void drawHoverHighlight(const WidgetLayout& layout, const WidgetModel& model);
+    void drawBackdrop(const WidgetLayout& layout, const WidgetModel& model, const D2D1_ROUNDED_RECT& shape);
+    void drawPulse(const WidgetLayout& layout, const WidgetModel& model);
     void drawCover(const WidgetLayout& layout, const WidgetModel& model);
+    void drawCoverFace(const std::optional<Cover>& face, const D2D1_ROUNDED_RECT& shape);
     void drawText(const WidgetLayout& layout);
+    void drawTextLine(const TextLine& line, const winrt::com_ptr<IDWriteTextLayout>& natural, const RectF& box,
+                      const Color& color, float opacity, float lift);
     void drawControls(const WidgetLayout& layout, const WidgetModel& model);
     void drawSpectrum(const WidgetLayout& layout, const WidgetModel& model);
 
     void fill(const Color& color);
+    [[nodiscard]] static Color barColor(const WidgetModel& model, int bar);
+    [[nodiscard]] float marqueeOffset(const TextLine& line, const winrt::com_ptr<IDWriteTextLayout>& natural,
+                                      float boxWidth) const noexcept;
 
     Graphics m_graphics;
     Fonts m_fonts;
@@ -85,7 +108,22 @@ private:
 
     TextLine m_title;
     TextLine m_artist;
+    // The same text laid out without a width limit: what scrolls.
+    winrt::com_ptr<IDWriteTextLayout> m_titleNatural;
+    winrt::com_ptr<IDWriteTextLayout> m_artistNatural;
     std::optional<Cover> m_cover;
+
+    // Transitions, timed with GetTickCount64. Zero start means none running.
+    std::optional<Cover> m_coverFrom;  // What the flip started from; empty = placeholder.
+    ULONGLONG m_coverFlipStart{};
+    TextLine m_titleFrom;
+    TextLine m_artistFrom;
+    ULONGLONG m_textSlideStart{};
+    ULONGLONG m_hoverSince{};  // Marquee clock: when the pointer arrived.
+
+    std::optional<Backdrop> m_backdrop;
+    std::optional<Backdrop> m_backdropFrom;
+    ULONGLONG m_backdropFadeStart{};
 };
 
 }  // namespace threnody::render

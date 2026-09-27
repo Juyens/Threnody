@@ -67,6 +67,38 @@ inline constexpr float gradientMinLightness = 0.55f;
 inline constexpr float gradientMaxLightness = 0.92f;
 inline constexpr float gradientWaveSpan = 1.0f;  // Wave cycles across the thirteen bars.
 
+// Beat pulse: kicks in the lowest bars make the widget's border glow in the
+// bars' colour for a moment. A kick is the bass average rising this far above
+// its recent average (tracked over beatAverageMs), at least this loud, and no
+// sooner than beatMinGapMs after the last.
+inline constexpr std::size_t beatBassBands = 3;
+inline constexpr float beatRise = 0.10f;
+inline constexpr float beatMinLevel = 0.35f;
+inline constexpr unsigned beatMinGapMs = 220;
+inline constexpr float beatAverageMs = 600.0f;
+inline constexpr float beatDecayMs = 200.0f;  // Time constant of the glow fading out.
+inline constexpr float pulseBorderAlpha = 0.80f;
+inline constexpr float pulseBorderWidthDip = 1.5f;
+inline constexpr float pulseTintAlpha = 0.08f;
+
+// Motion. A new cover turns over like a card; the old title slides up and
+// out while the new one comes in from below. Text too long for its column
+// scrolls while the pointer is over the widget, after a short pause.
+inline constexpr unsigned animationFrameMs = 16;
+inline constexpr unsigned coverFlipMs = 450;
+inline constexpr unsigned textSlideMs = 320;
+inline constexpr float textSlideDip = 9.0f;
+inline constexpr unsigned marqueeDelayMs = 500;
+inline constexpr float marqueeSpeedDipPerSecond = 30.0f;
+inline constexpr float marqueeGapDip = 36.0f;
+inline constexpr float marqueeFadeDip = 12.0f;
+
+// Floating widget backdrop: the cover, blurred by shrinking it to a few
+// pixels and stretching it back, under a shade that keeps the text legible.
+inline constexpr unsigned backdropSamplePx = 8;
+inline constexpr Color backdropShadeColor{0.0f, 0.0f, 0.0f, 0.50f};
+inline constexpr Color backdropHoverShadeColor{0.0f, 0.0f, 0.0f, 0.38f};
+
 // Cover colour analysis works on a downscaled copy of this many pixels a side.
 inline constexpr unsigned coverSampleSize = 48;
 
