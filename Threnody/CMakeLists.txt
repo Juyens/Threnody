@@ -74,6 +74,8 @@ add_executable(Threnody WIN32
     "src/render/WidgetModel.h"
     "src/render/WidgetRenderer.h"
     "src/render/WidgetRenderer.cpp"
+    "src/taskbar/DockPreview.h"
+    "src/taskbar/DockPreview.cpp"
     "src/taskbar/RegistryWatcher.h"
     "src/taskbar/RegistryWatcher.cpp"
     "src/taskbar/Taskbar.h"

@@ -30,11 +30,27 @@ constexpr UINT_PTR spectrumTimerId = 2;
 constexpr UINT_PTR hoverTimerId = 3;
 constexpr unsigned hoverFrameMs = 16;
 constexpr UINT_PTR audioTimerId = 4;
+constexpr UINT_PTR dragTimerId = 5;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
 constexpr UINT WM_THRENODY_TRAY = WM_APP + 4;
 constexpr UINT WM_THRENODY_SPOTIFY = WM_APP + 5;
+constexpr UINT WM_THRENODY_DRAG = WM_APP + 6;  // wParam, lParam: grab point in the widget
+
+// Shifts `rect` fully onto the work area of the monitor it is (mostly) on,
+// so a floating widget can never be left off-screen.
+RECT keepOnScreen(RECT rect) {
+    MONITORINFO monitor{.cbSize = sizeof(MONITORINFO)};
+    if (!GetMonitorInfoW(MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST), &monitor)) {
+        return rect;
+    }
+    const RECT& work = monitor.rcWork;
+    const LONG dx = rect.left < work.left ? work.left - rect.left : rect.right > work.right ? work.right - rect.right : 0;
+    const LONG dy = rect.top < work.top ? work.top - rect.top : rect.bottom > work.bottom ? work.bottom - rect.bottom : 0;
+    OffsetRect(&rect, dx, dy);
+    return rect;
+}
 
 bool equalsIgnoreCase(std::wstring_view a, std::wstring_view b) noexcept {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](wchar_t x, wchar_t y) {
@@ -90,6 +106,7 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     m_model.title = strings().placeholderTitle.wide;
     m_model.artist = strings().placeholderArtist.wide;
     m_model.colorMode = m_settings.colorMode;
+    m_model.floating = m_settings.floating;
 
     if (Result<std::unique_ptr<overlay::LockKeyOverlay>> lockOverlay = overlay::LockKeyOverlay::create(instance);
         lockOverlay) {
@@ -103,6 +120,10 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     m_widget.onClick([this](POINT position) { onWidgetClick(position); });
     m_widget.onPointerMove([this](POINT position) { onPointerMove(position); });
     m_widget.onPointerLeave([this] { onPointerLeave(); });
+    // Posted: starting the drag recreates the window whose message is being handled.
+    m_widget.onDragStart([messageWindow](POINT grab) {
+        PostMessageW(messageWindow, WM_THRENODY_DRAG, static_cast<WPARAM>(grab.x), static_cast<LPARAM>(grab.y));
+    });
 
     m_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
 
@@ -235,7 +256,13 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 onHoverFrame();
             } else if (wParam == audioTimerId) {
                 onAudioTick();
+            } else if (wParam == dragTimerId) {
+                onDragFrame();
             }
+            return 0;
+
+        case WM_THRENODY_DRAG:
+            beginDrag(POINT{.x = static_cast<LONG>(wParam), .y = static_cast<LONG>(lParam)});
             return 0;
 
         case WM_THRENODY_MEDIA_CHANGED:
@@ -295,6 +322,16 @@ void Application::syncWithTaskbar(bool force) {
         return;
     }
 
+    // Floating, or being dragged: the taskbar only matters as a place to
+    // dock, but its layout is still what the dock slot comes from.
+    if (m_drag || m_model.floating) {
+        m_layout = current;
+        if (!m_drag) {
+            syncFloating();
+        }
+        return;
+    }
+
     const bool embedded = m_widget.isEmbeddedIn(current->taskbar);
     const bool layoutChanged = !m_layout || !m_layout->sameGeometry(*current);
     if (embedded && !layoutChanged && !force) {
@@ -334,6 +371,181 @@ void Application::syncWithTaskbar(bool force) {
 
     m_widgetRect = rect;
     m_layout = current;
+    m_widgetDpi = current->dpi;
+    repaintWidget();
+}
+
+float Application::floatingHeightDip() const {
+    if (!m_layout) {
+        return 40.0f;
+    }
+    const int heightPx =
+        win32::height(m_layout->bounds) - 2 * win32::scaleDip(config::widgetVerticalMarginDip, m_layout->dpi);
+    return pixelsToDip(heightPx, m_layout->dpi);
+}
+
+// Same size as in the taskbar, at the DPI of whatever monitor it is on.
+void Application::syncFloating() {
+    const float heightDip = floatingHeightDip();
+    UINT dpi = m_widget.isFloating() ? GetDpiForWindow(m_widget.hwnd()) : 0;
+    if (dpi == 0) {
+        dpi = m_layout ? m_layout->dpi : 96;
+    }
+    int widthPx = dipToPixels(static_cast<float>(config::widgetMaxWidthDip) / 2.0f, dpi);
+    if (m_renderer) {
+        if (Result<render::WidgetLayout> widgetLayout = m_renderer->layout(m_model, heightDip); widgetLayout) {
+            m_widgetLayout = widgetLayout.value();
+            widthPx = dipToPixels(m_widgetLayout.width, dpi);
+        } else {
+            log::error("{}", widgetLayout.error().describe());
+        }
+    }
+    RECT current{.left = m_settings.floatingX, .top = m_settings.floatingY};
+    if (m_widget.isFloating()) {
+        GetWindowRect(m_widget.hwnd(), &current);
+    }
+    const RECT rect = keepOnScreen(
+        {current.left, current.top, current.left + widthPx, current.top + dipToPixels(heightDip, dpi)});
+
+    if (!m_widget.isFloating()) {
+        if (const Result<void> created = m_widget.makeFloating(rect); !created) {
+            log::error("{}", created.error().describe());
+            return;
+        }
+        log::info("widget floating at ({}, {}) {}x{} px, dpi {}", rect.left, rect.top, win32::width(rect),
+                  win32::height(rect), dpi);
+    } else if (!win32::sameRect(rect, m_widgetRect)) {
+        m_widget.move(rect);
+    }
+    m_widgetRect = rect;
+    m_widgetDpi = dpi;
+    repaintWidget();
+}
+
+// Where the widget would sit if dropped on the taskbar, in screen pixels.
+std::optional<RECT> Application::dockSlot() const {
+    if (!m_layout) {
+        return std::nullopt;
+    }
+    RECT slot = taskbar::placeWidget(*m_layout, dipToPixels(m_widgetLayout.width, m_layout->dpi));
+    MapWindowPoints(m_layout->taskbar, nullptr, reinterpret_cast<POINT*>(&slot), 2);
+    return slot;
+}
+
+void Application::beginDrag(POINT grab) {
+    if (m_drag || !m_widget.hwnd()) {
+        return;
+    }
+    if (m_volumeFlyout) {
+        m_volumeFlyout->close();
+    }
+    RECT screen{};
+    GetWindowRect(m_widget.hwnd(), &screen);
+    m_drag = Drag{.grab = grab};
+    m_model.hover.reset();
+    m_model.hoverProgress = 0.0f;
+
+    if (!m_model.floating) {
+        m_model.floating = true;
+        if (const Result<void> created = m_widget.makeFloating(screen); !created) {
+            log::error("{}", created.error().describe());
+            m_model.floating = false;
+            m_drag.reset();
+            syncWithTaskbar(true);
+            return;
+        }
+        m_widgetRect = screen;
+        log::info("widget undocked");
+    }
+    if (!m_dockPreview) {
+        if (Result<std::unique_ptr<taskbar::DockPreview>> preview = taskbar::DockPreview::create(m_instance); preview) {
+            m_dockPreview = std::move(preview.value());
+        } else {
+            log::error("dock preview unavailable: {}", preview.error().describe());
+        }
+    }
+    SetTimer(m_messageWindow.get(), dragTimerId, config::dragFrameMs, nullptr);
+    repaintWidget();
+}
+
+void Application::onDragFrame() {
+    if (!m_drag || !m_widget.hwnd()) {
+        KillTimer(m_messageWindow.get(), dragTimerId);
+        m_drag.reset();
+        return;
+    }
+    const int button = GetSystemMetrics(SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON;
+    if ((GetAsyncKeyState(button) & 0x8000) == 0) {
+        endDrag();
+        return;
+    }
+
+    // Crossing onto a monitor with another scale resizes the widget; keep
+    // the same spot of it under the cursor.
+    if (const UINT dpi = GetDpiForWindow(m_widget.hwnd()); dpi != 0 && dpi != m_widgetDpi) {
+        m_drag->grab = {MulDiv(m_drag->grab.x, static_cast<int>(dpi), static_cast<int>(m_widgetDpi)),
+                        MulDiv(m_drag->grab.y, static_cast<int>(dpi), static_cast<int>(m_widgetDpi))};
+        syncFloating();
+    }
+
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    RECT rect = m_widgetRect;
+    OffsetRect(&rect, cursor.x - m_drag->grab.x - rect.left, cursor.y - m_drag->grab.y - rect.top);
+    if (!win32::sameRect(rect, m_widgetRect)) {
+        m_widget.move(rect);
+        m_widgetRect = rect;
+    }
+
+    bool overDock = false;
+    const std::optional<RECT> slot = dockSlot();
+    if (slot) {
+        RECT zone = m_layout->bounds;
+        InflateRect(&zone, 0, win32::scaleDip(static_cast<int>(config::dockSnapDip), m_layout->dpi));
+        overDock = PtInRect(&zone, cursor) != FALSE;
+    }
+    if (overDock != m_drag->overDock) {
+        m_drag->overDock = overDock;
+        if (m_dockPreview) {
+            if (overDock) {
+                m_dockPreview->show(*slot, m_layout->dpi);
+                m_widget.move(m_widgetRect);  // Back above the preview.
+            } else {
+                m_dockPreview->hide();
+            }
+        }
+        m_widgetAlpha = overDock ? config::dragOverDockAlpha : 255;
+        repaintWidget();
+    }
+}
+
+void Application::endDrag() {
+    KillTimer(m_messageWindow.get(), dragTimerId);
+    if (m_dockPreview) {
+        m_dockPreview->hide();
+    }
+    const bool dock = m_drag && m_drag->overDock;
+    m_drag.reset();
+    m_widgetAlpha = 255;
+
+    if (dock) {
+        m_model.floating = false;
+        m_settings.floating = false;
+        saveSettings();
+        log::info("widget docked");
+        syncWithTaskbar(true);  // Embedding replaces the floating window.
+        return;
+    }
+    const RECT rect = keepOnScreen(m_widgetRect);
+    if (!win32::sameRect(rect, m_widgetRect)) {
+        m_widget.move(rect);
+        m_widgetRect = rect;
+    }
+    m_settings.floating = true;
+    m_settings.floatingX = rect.left;
+    m_settings.floatingY = rect.top;
+    saveSettings();
+    log::info("widget floating at ({}, {})", rect.left, rect.top);
     repaintWidget();
 }
 
@@ -348,12 +560,12 @@ void Application::repaintWidget() {
         return;
     }
 
-    if (const Result<void> drawn = m_renderer->draw(m_surface, m_model, m_widgetLayout, m_layout->dpi); !drawn) {
+    if (const Result<void> drawn = m_renderer->draw(m_surface, m_model, m_widgetLayout, m_widgetDpi); !drawn) {
         log::error("{}", drawn.error().describe());
         return;
     }
 
-    if (const Result<void> presented = m_surface.present(m_widget.hwnd()); !presented) {
+    if (const Result<void> presented = m_surface.present(m_widget.hwnd(), m_widgetAlpha); !presented) {
         log::error("{}", presented.error().describe());
         return;
     }
@@ -495,8 +707,8 @@ void Application::onWidgetClick(POINT position) {
     if (!m_layout) {
         return;
     }
-    const float x = pixelsToDip(position.x, m_layout->dpi);
-    const float y = pixelsToDip(position.y, m_layout->dpi);
+    const float x = pixelsToDip(position.x, m_widgetDpi);
+    const float y = pixelsToDip(position.y, m_widgetDpi);
 
     const interaction::Zone zone = interaction::hitTest(m_widgetLayout, x, y);
     log::info("click at ({:.0f}, {:.0f}) dip -> zone {}", x, y, static_cast<int>(zone));
@@ -617,7 +829,7 @@ void Application::toggleVolumeFlyout() {
     }
     RECT widget{};
     GetWindowRect(m_widget.hwnd(), &widget);
-    const UINT dpi = m_layout->dpi;
+    const UINT dpi = m_widgetDpi;
     const RECT anchor{
         .left = widget.left + dipToPixels(m_widgetLayout.volume.left, dpi),
         .top = widget.top,
@@ -672,7 +884,7 @@ void Application::onPointerMove(POINT position) {
         return;
     }
     const std::optional<render::Zone> zone = interaction::hitTest(
-        m_widgetLayout, pixelsToDip(position.x, m_layout->dpi), pixelsToDip(position.y, m_layout->dpi));
+        m_widgetLayout, pixelsToDip(position.x, m_widgetDpi), pixelsToDip(position.y, m_widgetDpi));
     if (zone != m_model.hover) {
         m_model.hover = zone;
         repaintWidget();
@@ -767,6 +979,11 @@ void Application::openSettings() {
 void Application::applySettings(const settings::Settings& updated) {
     const settings::Settings previous = m_settings;
     m_settings = updated;
+    // Where the widget lives is decided by dragging it; the window's copy of
+    // the settings may predate the last drag.
+    m_settings.floating = previous.floating;
+    m_settings.floatingX = previous.floatingX;
+    m_settings.floatingY = previous.floatingY;
 
     if (previous.colorMode != updated.colorMode) {
         m_model.colorMode = updated.colorMode;

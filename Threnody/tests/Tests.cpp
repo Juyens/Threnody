@@ -155,6 +155,9 @@ void testSettingsRoundTrip() {
     original.startWithWindows = true;
     original.lockKeys.numLock = false;
     original.colorMode = ColorMode::Rainbow;
+    original.floating = true;
+    original.floatingX = -1200;
+    original.floatingY = 340;
     original.spotifyClientId = "abc";
     original.spotifyRefreshTokenProtected = "sealed";
     check(settings::save(original, file).ok(), "settings save");

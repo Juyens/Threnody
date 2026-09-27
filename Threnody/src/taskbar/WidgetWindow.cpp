@@ -4,10 +4,13 @@
 
 #include <windowsx.h>
 
+#include <cstdlib>
+
 namespace threnody::taskbar {
 namespace {
 
 constexpr wchar_t widgetClassName[] = L"ThrenodyWidget";
+constexpr int dragThresholdDip = 6;  // Past this, a press is a drag rather than a click.
 
 }  // namespace
 
@@ -29,6 +32,7 @@ WidgetWindow::~WidgetWindow() = default;
 
 Result<void> WidgetWindow::embed(HWND taskbar, const RECT& rect) {
     m_hwnd.reset();
+    m_floating = false;
 
     // Created as a top-level popup first, then converted to a child; this is
     // the sequence that has been verified to work against the taskbar.
@@ -58,6 +62,21 @@ Result<void> WidgetWindow::embed(HWND taskbar, const RECT& rect) {
     return {};
 }
 
+Result<void> WidgetWindow::makeFloating(const RECT& rect) {
+    m_hwnd.reset();
+    m_hovering = false;
+    m_press.reset();
+    HWND hwnd = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TOPMOST, m_class.name(),
+                                L"Threnody", WS_POPUP, rect.left, rect.top, win32::width(rect), win32::height(rect),
+                                nullptr, nullptr, m_instance, this);
+    if (hwnd == nullptr) {
+        return Error::fromLastError("CreateWindowEx(ThrenodyWidget, floating)");
+    }
+    m_hwnd.reset(hwnd);
+    m_floating = true;
+    return {};
+}
+
 bool WidgetWindow::isEmbeddedIn(HWND taskbar) const noexcept {
     const HWND hwnd = m_hwnd.get();
     return hwnd != nullptr && IsWindow(hwnd) && GetParent(hwnd) == taskbar;
@@ -65,8 +84,9 @@ bool WidgetWindow::isEmbeddedIn(HWND taskbar) const noexcept {
 
 void WidgetWindow::move(const RECT& rect) const noexcept {
     if (m_hwnd) {
-        SetWindowPos(m_hwnd.get(), HWND_TOP, rect.left, rect.top, win32::width(rect), win32::height(rect),
-                     SWP_NOACTIVATE);
+        // A floating widget keeps its place in the topmost band.
+        SetWindowPos(m_hwnd.get(), m_floating ? HWND_TOPMOST : HWND_TOP, rect.left, rect.top, win32::width(rect),
+                     win32::height(rect), SWP_NOACTIVATE);
     }
 }
 
@@ -108,6 +128,21 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
                 TRACKMOUSEEVENT track{.cbSize = sizeof(TRACKMOUSEEVENT), .dwFlags = TME_LEAVE, .hwndTrack = hwnd};
                 TrackMouseEvent(&track);
             }
+            if (m_press) {
+                const POINT at{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)};
+                const UINT dpi = GetDpiForWindow(hwnd);
+                const int threshold = MulDiv(dragThresholdDip, dpi == 0 ? 96 : static_cast<int>(dpi), 96);
+                if (std::abs(at.x - m_press->x) >= threshold || std::abs(at.y - m_press->y) >= threshold) {
+                    const POINT press = *m_press;
+                    m_press.reset();
+                    m_dragged = true;
+                    ReleaseCapture();
+                    if (m_onDragStart) {
+                        m_onDragStart(press);
+                    }
+                    return 0;
+                }
+            }
             if (m_onPointerMove) {
                 m_onPointerMove(POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)});
             }
@@ -120,10 +155,29 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
             }
             return 0;
 
-        case WM_LBUTTONUP:
-            if (m_onClick) {
+        case WM_LBUTTONDOWN:
+            m_press = POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)};
+            m_dragged = false;
+            SetCapture(hwnd);  // Keeps the moves coming if the pointer leaves quickly.
+            return 0;
+
+        case WM_LBUTTONUP: {
+            // An up without a down (posted by a test, or the down went to the
+            // taskbar) still counts as a click; an up ending a drag does not.
+            const bool click = !m_dragged;
+            m_press.reset();
+            m_dragged = false;
+            if (GetCapture() == hwnd) {
+                ReleaseCapture();
+            }
+            if (click && m_onClick) {
                 m_onClick(POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)});
             }
+            return 0;
+        }
+
+        case WM_CAPTURECHANGED:
+            m_press.reset();
             return 0;
 
         case WM_NCDESTROY:

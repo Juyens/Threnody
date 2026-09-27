@@ -158,6 +158,22 @@ inline constexpr Color volumeFlyoutBorderColor{1.0f, 1.0f, 1.0f, 0.09f};
 inline constexpr Color volumeFlyoutTrackColor{1.0f, 1.0f, 1.0f, 0.25f};
 inline constexpr Color volumeFlyoutFillColor{1.0f, 1.0f, 1.0f, 0.95f};
 
+// Dragging the widget out of the taskbar and back. Out of it the widget
+// floats above everything on its own dark panel (the taskbar's translucent
+// look would vanish over other windows). Dragged back within the snap
+// distance of the taskbar, a ghost of its slot shows where it will dock.
+inline constexpr float dockSnapDip = 24.0f;
+inline constexpr unsigned dragFrameMs = 8;
+inline constexpr unsigned char dragOverDockAlpha = 170;  // The dragged widget, while a drop would dock it.
+inline constexpr unsigned dockPreviewFadeMs = 150;
+inline constexpr float dockPreviewStrokeDip = 1.5f;
+inline constexpr Color dockPreviewFillColor{1.0f, 1.0f, 1.0f, 0.10f};
+inline constexpr Color dockPreviewStrokeColor{1.0f, 1.0f, 1.0f, 0.55f};
+inline constexpr Color floatingBackgroundColor{0.13f, 0.13f, 0.13f, 0.96f};
+inline constexpr Color floatingBorderColor{1.0f, 1.0f, 1.0f, 0.10f};
+inline constexpr Color floatingHoverBackgroundColor{0.17f, 0.17f, 0.17f, 0.97f};
+inline constexpr Color floatingHoverBorderColor{1.0f, 1.0f, 1.0f, 0.18f};
+
 // SMTC reports Spotify's state seconds late. After a shuffle click the
 // widget shows the new state and ignores a contrary report for this long.
 inline constexpr unsigned shuffleConfirmHoldMs = 15000;

@@ -340,7 +340,8 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
         .radiusX = config::backgroundCornerRadiusDip,
         .radiusY = config::backgroundCornerRadiusDip,
     };
-    fill(mix(config::backgroundColor, config::hoverBackgroundColor, hover));
+    fill(model.floating ? mix(config::floatingBackgroundColor, config::floatingHoverBackgroundColor, hover)
+                        : mix(config::backgroundColor, config::hoverBackgroundColor, hover));
     m_target->FillRoundedRectangle(shape, m_brush.get());
 
     const D2D1_ROUNDED_RECT border{
@@ -348,7 +349,8 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
         .radiusX = config::backgroundCornerRadiusDip,
         .radiusY = config::backgroundCornerRadiusDip,
     };
-    fill(mix(config::backgroundBorderColor, config::hoverBorderColor, hover));
+    fill(model.floating ? mix(config::floatingBorderColor, config::floatingHoverBorderColor, hover)
+                        : mix(config::backgroundBorderColor, config::hoverBorderColor, hover));
     m_target->DrawRoundedRectangle(border, m_brush.get(), 1.0f);
 }
 

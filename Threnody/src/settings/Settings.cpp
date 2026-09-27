@@ -35,6 +35,12 @@ json toJson(const Settings& s) {
              {"insert", s.lockKeys.insert},
          }},
         {"colorMode", colorModeName(s.colorMode)},
+        {"widget",
+         {
+             {"floating", s.floating},
+             {"x", s.floatingX},
+             {"y", s.floatingY},
+         }},
         {"spotify",
          {
              {"clientId", s.spotifyClientId},
@@ -56,6 +62,11 @@ Settings fromJson(const json& j) {
         s.lockKeys.insert = keys->value("insert", s.lockKeys.insert);
     }
     s.colorMode = colorModeFromName(j.value("colorMode", std::string{colorModeName(s.colorMode)}));
+    if (const auto widget = j.find("widget"); widget != j.end() && widget->is_object()) {
+        s.floating = widget->value("floating", s.floating);
+        s.floatingX = widget->value("x", s.floatingX);
+        s.floatingY = widget->value("y", s.floatingY);
+    }
     if (const auto spotify = j.find("spotify"); spotify != j.end() && spotify->is_object()) {
         s.spotifyClientId = spotify->value("clientId", s.spotifyClientId);
         s.spotifyRefreshTokenProtected = spotify->value("refreshTokenProtected", s.spotifyRefreshTokenProtected);

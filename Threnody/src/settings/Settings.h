@@ -28,6 +28,12 @@ struct Settings {
     LockKeyOverlay lockKeys;
     ColorMode colorMode{ColorMode::Track};
 
+    // Dragged out of the taskbar: floats with its top-left corner here, in
+    // screen pixels.
+    bool floating{false};
+    int floatingX{};
+    int floatingY{};
+
     // Spotify Web API (PKCE). Empty until the user connects in the settings
     // window; the refresh token is stored encrypted with DPAPI, base64 here.
     std::string spotifyClientId;

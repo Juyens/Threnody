@@ -20,6 +20,7 @@ struct WidgetModel {
     std::wstring title;
     std::wstring artist;
     bool playing{false};
+    bool floating{false};  // Out of the taskbar: drawn on its own opaque panel.
 
     // Shuffle as Spotify reports it; empty while it offers no control, which
     // draws the button dimmed.

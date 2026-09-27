@@ -40,6 +40,10 @@ Every part of it is clickable:
 | **Speaker** | Opens a volume slider for Spotify alone: drag, scroll or use the arrow keys; the speaker in it mutes |
 | **Spectrum** | Cycles the colour mode |
 
+It can also leave the taskbar: **drag it out** and it floats above everything as a mini player on
+its own dark panel, remembered across restarts. Drag it back towards the taskbar and a ghost of
+its slot shows where it will dock; let go there and it is embedded again.
+
 ## The spectrum is real
 
 The bars are not decoration. Audio is captured **from Spotify's own process** with WASAPI

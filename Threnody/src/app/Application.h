@@ -15,6 +15,7 @@
 #include "settings/Settings.h"
 #include "shell/SpotifyWindow.h"
 #include "spotify/SpotifyClient.h"
+#include "taskbar/DockPreview.h"
 #include "taskbar/RegistryWatcher.h"
 #include "taskbar/Taskbar.h"
 #include "taskbar/WidgetWindow.h"
@@ -55,6 +56,16 @@ private:
     // content changes that alter the widget width.
     void syncWithTaskbar(bool force);
     void repaintWidget();
+
+    // Dragging the widget out of the taskbar and back. The drag runs on a
+    // timer that follows the cursor and the button state, so it does not
+    // depend on mouse capture surviving the window being recreated.
+    void beginDrag(POINT grab);
+    void onDragFrame();
+    void endDrag();
+    void syncFloating();
+    [[nodiscard]] float floatingHeightDip() const;
+    [[nodiscard]] std::optional<RECT> dockSlot() const;
     void onMediaChanged();
     void setCover(std::vector<std::uint8_t> image);
     bool applyArtworkFallback();
@@ -153,6 +164,14 @@ private:
 
     std::unique_ptr<overlay::LockKeyOverlay> m_lockOverlay;
     std::unique_ptr<overlay::VolumeFlyout> m_volumeFlyout;  // Created on first use.
+    std::unique_ptr<taskbar::DockPreview> m_dockPreview;    // Created on first drag.
+    struct Drag {
+        POINT grab{};  // Cursor offset inside the widget, pixels.
+        bool overDock{false};
+    };
+    std::optional<Drag> m_drag;
+    UINT m_widgetDpi{96};  // The widget's monitor; the taskbar's while docked.
+    BYTE m_widgetAlpha{255};
     audio::SpotifyVolume m_volume;
     ULONGLONG m_shuffleHoldUntil{};
     std::unique_ptr<overlay::KeyboardHook> m_keyboardHook;
