@@ -218,6 +218,10 @@ inline constexpr float queuePeekLabelSizeDip = 10.5f;
 inline constexpr float queuePeekTitleSizeDip = 13.0f;
 inline constexpr float queuePeekSubtitleSizeDip = 11.5f;
 inline constexpr unsigned queuePeekFadeMs = 140;
+// Right after a skip the Web API still describes the previous track; a queue
+// read then is asked again after this long, up to this many times.
+inline constexpr unsigned queueRetryMs = 600;
+inline constexpr unsigned queueRetryLimit = 5;
 
 // Wheel over the widget: Spotify's volume in steps of volumeStep per notch.
 // The visualiser shows the level for a moment instead of the bars.

@@ -92,6 +92,7 @@ private:
 
     // "Up next" bubble over the next button, fed by the Web API queue.
     void updateQueuePeek();
+    void acceptQueue(const spotify::QueueResult& queue);
     void forgetUpNext();
     [[nodiscard]] RECT zoneOnScreen(const render::RectF& zone) const;
     void toggleColorMode();
@@ -179,6 +180,7 @@ private:
     std::unique_ptr<overlay::QueuePeek> m_queuePeek;        // Created on first peek.
     std::unique_ptr<interaction::WheelHook> m_wheelHook;    // Only while the pointer is over the widget.
     std::uint32_t m_queueRequest{};                         // In flight; 0 when none.
+    unsigned m_queueRetries{};                              // Stale answers asked again for this track.
     std::optional<spotify::QueuedTrack> m_upNext;
     bool m_upNextKnown{false};
     ULONGLONG m_peekHoverSince{};                           // Pointer on "next" since; 0 when not.

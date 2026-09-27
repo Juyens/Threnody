@@ -33,6 +33,7 @@ constexpr UINT_PTR audioTimerId = 4;
 constexpr UINT_PTR dragTimerId = 5;
 constexpr UINT_PTR animationTimerId = 6;
 constexpr UINT_PTR peekTimerId = 7;
+constexpr UINT_PTR queueRetryTimerId = 8;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
@@ -265,7 +266,13 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 repaintWidget();
             } else if (wParam == peekTimerId) {
                 KillTimer(hwnd, peekTimerId);
+            KillTimer(hwnd, queueRetryTimerId);
                 updateQueuePeek();
+            } else if (wParam == queueRetryTimerId) {
+                KillTimer(hwnd, queueRetryTimerId);
+                if (!m_upNextKnown && m_queueRequest == 0 && m_peekHoverSince != 0 && m_spotify) {
+                    m_queueRequest = m_spotify->requestQueue();
+                }
             }
             return 0;
 
@@ -921,12 +928,30 @@ void Application::updateQueuePeek() {
     m_queuePeek->show(zoneOnScreen(m_widgetLayout.next), m_widgetDpi, content);
 }
 
+// Takes a queue answer as what plays next. One still out of step with SMTC
+// after the retries (a title the two sources spell differently, say) is
+// trusted unless it names what is playing.
+void Application::acceptQueue(const spotify::QueueResult& queue) {
+    m_upNext = queue.next;
+    if (m_upNext && equalsIgnoreCase(m_upNext->name, m_model.title)) {
+        m_upNext.reset();
+    }
+    m_upNextKnown = true;
+    if (m_upNext) {
+        log::info("up next: {} / {}", text::toUtf8(m_upNext->name), text::toUtf8(m_upNext->artist));
+        m_spotify->requestArtwork(m_upNext->artworkUrl);
+    } else {
+        log::info("up next: nothing to show");
+    }
+}
+
 // The queue moved on (a new track, or "next" clicked): ask again if the
 // pointer is still waiting on the button.
 void Application::forgetUpNext() {
     m_upNext.reset();
     m_upNextKnown = false;
     m_queueRequest = 0;
+    m_queueRetries = 0;
     if (m_queuePeek) {
         m_queuePeek->hide();
     }
@@ -1203,13 +1228,12 @@ void Application::onSpotifyChanged() {
             if (const std::optional<spotify::QueueResult> queue = m_spotify->queue();
                 queue && queue->request == m_queueRequest) {
                 m_queueRequest = 0;
-                m_upNext = queue->next;
-                m_upNextKnown = true;
-                if (m_upNext) {
-                    log::info("up next: {} / {}", text::toUtf8(m_upNext->name), text::toUtf8(m_upNext->artist));
-                    m_spotify->requestArtwork(m_upNext->artworkUrl);
+                const bool stale = !equalsIgnoreCase(queue->playingName, m_model.title);
+                if (stale && m_queueRetries < config::queueRetryLimit) {
+                    ++m_queueRetries;
+                    SetTimer(m_messageWindow.get(), queueRetryTimerId, config::queueRetryMs, nullptr);
                 } else {
-                    log::info("up next: nothing queued");
+                    acceptQueue(*queue);
                 }
             }
         }

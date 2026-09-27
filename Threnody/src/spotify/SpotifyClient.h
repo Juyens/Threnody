@@ -40,9 +40,12 @@ struct QueuedTrack {
 };
 
 // Answer to one requestQueue(): `next` is empty when the queue is empty or
-// could not be read.
+// could not be read. `playingName` is what Spotify thinks is playing; the
+// Web API lags SMTC by a moment after a skip, and a queue read in that
+// moment still lists the new track as next, so callers compare the two.
 struct QueueResult {
     std::uint32_t request{};
+    std::wstring playingName;
     std::optional<QueuedTrack> next;
 };
 

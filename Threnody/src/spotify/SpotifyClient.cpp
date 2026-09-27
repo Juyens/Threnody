@@ -317,25 +317,39 @@ winrt::fire_and_forget fetchQueue(std::weak_ptr<Shared> weak, std::uint32_t requ
                 std::scoped_lock lock{shared->mutex};
                 shared->accessToken.clear();
             }
-        } else if (const json j = json::parse(winrt::to_string(body)); j.contains("queue") && j["queue"].is_array() &&
-                                                                          !j["queue"].empty() &&
-                                                                          j["queue"].front().is_object()) {
-            const json& item = j["queue"].front();
-            QueuedTrack next;
-            next.name = text::toWide(item.value("name", ""));
-            if (const auto artists = item.find("artists");
-                artists != item.end() && artists->is_array() && !artists->empty() && artists->front().is_object()) {
-                next.artist = text::toWide(artists->front().value("name", ""));
-            } else if (const auto show = item.find("show"); show != item.end() && show->is_object()) {
-                next.artist = text::toWide(show->value("name", ""));
+        } else if (const json j = json::parse(winrt::to_string(body)); j.contains("queue") && j["queue"].is_array()) {
+            std::string playingUri;
+            if (const auto playing = j.find("currently_playing"); playing != j.end() && playing->is_object()) {
+                result.playingName = text::toWide(playing->value("name", ""));
+                playingUri = playing->value("uri", "");
             }
-            next.artworkUrl = pickArtworkUrl(item);
-            if (next.artworkUrl.empty()) {
-                if (const auto images = item.find("images"); images != item.end()) {
-                    next.artworkUrl = pickArtworkUrl(json{{"album", {{"images", *images}}}});  // Episodes carry their own.
+            // The queue sometimes repeats the playing track at its head.
+            const json* found = nullptr;
+            for (const json& candidate : j["queue"]) {
+                if (candidate.is_object() && (playingUri.empty() || candidate.value("uri", "") != playingUri)) {
+                    found = &candidate;
+                    break;
                 }
             }
-            result.next = std::move(next);
+            if (found != nullptr) {
+                const json& item = *found;
+                QueuedTrack next;
+                next.name = text::toWide(item.value("name", ""));
+                if (const auto artists = item.find("artists");
+                    artists != item.end() && artists->is_array() && !artists->empty() && artists->front().is_object()) {
+                    next.artist = text::toWide(artists->front().value("name", ""));
+                } else if (const auto show = item.find("show"); show != item.end() && show->is_object()) {
+                    next.artist = text::toWide(show->value("name", ""));
+                }
+                next.artworkUrl = pickArtworkUrl(item);
+                if (next.artworkUrl.empty()) {
+                    // Episodes carry their own images rather than an album's.
+                    if (const auto images = item.find("images"); images != item.end()) {
+                        next.artworkUrl = pickArtworkUrl(json{{"album", {{"images", *images}}}});
+                    }
+                }
+                result.next = std::move(next);
+            }
         }
     } catch (const winrt::hresult_error& e) {
         log::warn("Spotify queue failed: {}", describe(e));
