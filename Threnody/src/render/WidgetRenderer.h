@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace threnody::render {
 
@@ -69,7 +70,12 @@ private:
     WidgetRenderer(Graphics graphics, Fonts fonts);
 
     [[nodiscard]] Result<void> ensureTarget(const LayeredSurface& surface, UINT dpi);
-    [[nodiscard]] Result<void> ensureGlyphs();
+    // An icon's paths, stroked together (see render/Icons.h).
+    using Icon = std::vector<winrt::com_ptr<ID2D1PathGeometry>>;
+
+    [[nodiscard]] Result<void> ensureIcons();
+    // Strokes `icon` in a `size`-DIP box at `origin`, with the current brush.
+    void drawIcon(const Icon& icon, D2D1_POINT_2F origin, float size);
     [[nodiscard]] Result<winrt::com_ptr<IWICBitmapFrameDecode>> decodeCover(const WidgetModel& model);
     [[nodiscard]] Result<void> ensureCover(const WidgetModel& model, const RectF& zone);
     [[nodiscard]] Result<void> ensureBackdrop(const WidgetModel& model, const WidgetLayout& layout);
@@ -107,14 +113,16 @@ private:
     SIZE m_boundSize{};
     UINT m_dpi{96};
 
-    winrt::com_ptr<ID2D1PathGeometry> m_playGlyph;
-    winrt::com_ptr<ID2D1PathGeometry> m_previousGlyph;
-    winrt::com_ptr<ID2D1PathGeometry> m_nextGlyph;
-    winrt::com_ptr<ID2D1PathGeometry> m_shuffleIcon;
-    winrt::com_ptr<ID2D1PathGeometry> m_sparkleIcon;
-    winrt::com_ptr<ID2D1PathGeometry> m_repeatAllIcon;
-    winrt::com_ptr<ID2D1PathGeometry> m_repeatOneIcon;
-    std::array<winrt::com_ptr<ID2D1PathGeometry>, 4> m_speakerIcons;  // Muted, low, mid, high.
+    winrt::com_ptr<ID2D1StrokeStyle> m_iconStroke;  // Round caps and joins, as Lucide draws.
+    Icon m_shuffleIcon;
+    Icon m_sparkleIcon;
+    Icon m_repeatIcon;
+    Icon m_repeatOneIcon;
+    Icon m_previousIcon;
+    Icon m_playIcon;
+    Icon m_pauseIcon;
+    Icon m_nextIcon;
+    std::array<Icon, 4> m_speakerIcons;  // Muted, low, mid, high.
 
     TextLine m_title;
     TextLine m_artist;

@@ -75,26 +75,18 @@ float progress(ULONGLONG start, unsigned durationMs) noexcept {
 // A very wide layout box: measures the natural width of a line.
 constexpr float measureWidth = 4096.0f;
 
-Result<winrt::com_ptr<ID2D1PathGeometry>> createPolygon(ID2D1Factory1& factory, std::span<const D2D1_POINT_2F> points,
-                                                       const char* what) {
-    winrt::com_ptr<ID2D1PathGeometry> geometry;
-    HRESULT hr = factory.CreatePathGeometry(geometry.put());
-    if (FAILED(hr)) {
-        return Error::fromHResult(hr, std::string("CreatePathGeometry ") + what);
+template <std::size_t N>
+Result<std::vector<winrt::com_ptr<ID2D1PathGeometry>>> buildIcon(ID2D1Factory1& factory,
+                                                                 const std::array<std::string_view, N>& paths) {
+    std::vector<winrt::com_ptr<ID2D1PathGeometry>> icon;
+    for (const std::string_view path : paths) {
+        Result<winrt::com_ptr<ID2D1PathGeometry>> geometry = pathGeometryFromSvg(factory, path);
+        if (!geometry) {
+            return geometry.error();
+        }
+        icon.push_back(std::move(geometry.value()));
     }
-    winrt::com_ptr<ID2D1GeometrySink> sink;
-    hr = geometry->Open(sink.put());
-    if (FAILED(hr)) {
-        return Error::fromHResult(hr, std::string("ID2D1PathGeometry::Open ") + what);
-    }
-    sink->BeginFigure(points[0], D2D1_FIGURE_BEGIN_FILLED);
-    sink->AddLines(points.data() + 1, static_cast<UINT32>(points.size() - 1));
-    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-    hr = sink->Close();
-    if (FAILED(hr)) {
-        return Error::fromHResult(hr, std::string("ID2D1GeometrySink::Close ") + what);
-    }
-    return geometry;
+    return icon;
 }
 
 }  // namespace
@@ -112,60 +104,54 @@ Result<std::unique_ptr<WidgetRenderer>> WidgetRenderer::create() {
         return fonts.error();
     }
     std::unique_ptr<WidgetRenderer> renderer{new WidgetRenderer(std::move(graphics.value()), std::move(fonts.value()))};
-    if (const Result<void> glyphs = renderer->ensureGlyphs(); !glyphs) {
-        return glyphs.error();
+    if (const Result<void> icons = renderer->ensureIcons(); !icons) {
+        return icons.error();
     }
     return renderer;
 }
 
-Result<void> WidgetRenderer::ensureGlyphs() {
-    constexpr float s = config::controlGlyphSizeDip;
-    constexpr float bar = 0.22f * s;
-
-    const D2D1_POINT_2F play[] = {{0.0f, 0.0f}, {s, s / 2.0f}, {0.0f, s}};
-    // Previous: a bar on the left, a triangle pointing at it.
-    const D2D1_POINT_2F previous[] = {{0.0f, 0.0f}, {bar, 0.0f},         {bar, s / 2.0f}, {s, 0.0f},
-                                      {s, s},       {bar, s / 2.0f},     {bar, s},        {0.0f, s}};
-    const D2D1_POINT_2F next[] = {{0.0f, 0.0f}, {s - bar, s / 2.0f}, {s - bar, 0.0f}, {s, 0.0f},
-                                  {s, s},       {s - bar, s},        {s - bar, s / 2.0f}, {0.0f, s}};
-
-    Result<winrt::com_ptr<ID2D1PathGeometry>> geometry = createPolygon(*m_graphics.d2d, play, "play");
-    if (!geometry) {
-        return geometry.error();
+Result<void> WidgetRenderer::ensureIcons() {
+    const D2D1_STROKE_STYLE_PROPERTIES round{
+        .startCap = D2D1_CAP_STYLE_ROUND,
+        .endCap = D2D1_CAP_STYLE_ROUND,
+        .dashCap = D2D1_CAP_STYLE_ROUND,
+        .lineJoin = D2D1_LINE_JOIN_ROUND,
+        .miterLimit = 10.0f,
+        .dashStyle = D2D1_DASH_STYLE_SOLID,
+    };
+    if (const HRESULT hr = m_graphics.d2d->CreateStrokeStyle(round, nullptr, 0, m_iconStroke.put()); FAILED(hr)) {
+        return Error::fromHResult(hr, "CreateStrokeStyle(icons)");
     }
-    m_playGlyph = std::move(geometry.value());
 
-    geometry = createPolygon(*m_graphics.d2d, previous, "previous");
-    if (!geometry) {
-        return geometry.error();
-    }
-    m_previousGlyph = std::move(geometry.value());
-
-    geometry = createPolygon(*m_graphics.d2d, next, "next");
-    if (!geometry) {
-        return geometry.error();
-    }
-    m_nextGlyph = std::move(geometry.value());
-
-    for (const auto& [path, target] : {std::pair{icons::shuffle, &m_shuffleIcon}, std::pair{icons::sparkle, &m_sparkleIcon},
-                                       std::pair{icons::repeatAll, &m_repeatAllIcon},
-                                       std::pair{icons::repeatOne, &m_repeatOneIcon}}) {
-        geometry = pathGeometryFromSvg(*m_graphics.d2d, path);
-        if (!geometry) {
-            return geometry.error();
+    ID2D1Factory1& factory = *m_graphics.d2d;
+    const auto build = [&](Icon& target, const auto& paths) -> Result<void> {
+        Result<Icon> icon = buildIcon(factory, paths);
+        if (!icon) {
+            return icon.error();
         }
-        *target = std::move(geometry.value());
-    }
-
-    const std::array speakers{icons::speakerMute, icons::speaker0, icons::speaker1, icons::speaker2};
-    for (std::size_t i = 0; i < speakers.size(); ++i) {
-        geometry = pathGeometryFromSvg(*m_graphics.d2d, speakers[i]);
-        if (!geometry) {
-            return geometry.error();
+        target = std::move(icon.value());
+        return {};
+    };
+    for (Result<void> built : {build(m_shuffleIcon, icons::shuffle), build(m_sparkleIcon, icons::sparkle),
+                               build(m_repeatIcon, icons::repeat), build(m_repeatOneIcon, icons::repeatOne),
+                               build(m_previousIcon, icons::previous), build(m_playIcon, icons::play),
+                               build(m_pauseIcon, icons::pause), build(m_nextIcon, icons::next),
+                               build(m_speakerIcons[0], icons::speakerMute), build(m_speakerIcons[1], icons::speaker0),
+                               build(m_speakerIcons[2], icons::speaker1), build(m_speakerIcons[3], icons::speaker2)}) {
+        if (!built) {
+            return built;
         }
-        m_speakerIcons[i] = std::move(geometry.value());
     }
     return {};
+}
+
+void WidgetRenderer::drawIcon(const Icon& icon, D2D1_POINT_2F origin, float size) {
+    const float scale = size / icons::canvasUnits;
+    m_target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
+    for (const auto& path : icon) {
+        m_target->DrawGeometry(path.get(), m_brush.get(), icons::strokeUnits, m_iconStroke.get());
+    }
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
 }
 
 Result<void> WidgetRenderer::updateTextLine(TextLine& line, const std::wstring& text, float maxWidth,
@@ -708,12 +694,8 @@ void WidgetRenderer::drawCardVolume(const WidgetLayout& layout, const WidgetMode
     // Speaker, drawn like the volume button's.
     const std::size_t speaker = level <= 0.0f ? 0 : level < 0.34f ? 1 : level < 0.67f ? 2 : 3;
     const float iconLeft = pill.left + round - cardOsdIconDip / 2.0f + 2.0f;
-    const float scale = cardOsdIconDip / icons::canvasUnits;
     fill(controlColor.withAlpha(controlColor.a * osd));
-    m_target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) *
-                           D2D1::Matrix3x2F::Translation(iconLeft, centreY - cardOsdIconDip / 2.0f));
-    m_target->FillGeometry(m_speakerIcons[speaker].get(), m_brush.get());
-    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    drawIcon(m_speakerIcons[speaker], {iconLeft, centreY - cardOsdIconDip / 2.0f}, cardOsdIconDip);
 
     // Level track between the speaker and the number.
     const float trackLeft = iconLeft + cardOsdIconDip + 8.0f;
@@ -855,65 +837,45 @@ bool WidgetRenderer::animating(const WidgetModel& model, const WidgetLayout& lay
 }
 
 void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel& model) {
-    constexpr float s = config::controlGlyphSizeDip;  // Glyph space; scaled on placement.
     const float k = layout.controlScale;
-    fill(config::controlColor);
-
-    const auto place = [&](const RectF& zone) {
-        const float x = zone.left + (zone.width() - s * k) / 2.0f;
-        const float y = zone.top + (zone.height() - s * k) / 2.0f;
-        m_target->SetTransform(D2D1::Matrix3x2F::Scale(k, k) * D2D1::Matrix3x2F::Translation(x, y));
-    };
-
-    place(layout.previous);
-    m_target->FillGeometry(m_previousGlyph.get(), m_brush.get());
-
-    place(layout.playPause);
-    if (model.playing) {
-        constexpr float barWidth = 0.34f * s;
-        m_target->FillRoundedRectangle(D2D1_ROUNDED_RECT{{0.0f, 0.0f, barWidth, s}, 1.0f, 1.0f}, m_brush.get());
-        m_target->FillRoundedRectangle(D2D1_ROUNDED_RECT{{s - barWidth, 0.0f, s, s}, 1.0f, 1.0f}, m_brush.get());
-    } else {
-        m_target->FillGeometry(m_playGlyph.get(), m_brush.get());
-    }
-
-    place(layout.next);
-    m_target->FillGeometry(m_nextGlyph.get(), m_brush.get());
-
-    // Fluent icons live in a 20-unit box; `share` of the icon size, placed
-    // `offset` (in icon sizes) from the zone's centred box.
     const float icon = config::controlIconSizeDip * k;
-    const auto drawIcon = [&](const RectF& zone, ID2D1Geometry* geometry, float share, D2D1_POINT_2F offset) {
-        const float x = zone.left + (zone.width() - icon) / 2.0f;
-        const float y = zone.top + (zone.height() - icon) / 2.0f;
+    // `share` of the icon size, `offset` (in icon sizes) from the zone's
+    // centred box. The stroke keeps its width whatever the share.
+    const auto drawIn = [&](const RectF& zone, const Icon& shape, float share = 1.0f, D2D1_POINT_2F offset = {}) {
+        const float x = zone.left + (zone.width() - icon) / 2.0f + offset.x * icon;
+        const float y = zone.top + (zone.height() - icon) / 2.0f + offset.y * icon;
         const float scale = icon * share / icons::canvasUnits;
-        m_target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) *
-                               D2D1::Matrix3x2F::Translation(x + offset.x * icon, y + offset.y * icon));
-        m_target->FillGeometry(geometry, m_brush.get());
+        m_target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) * D2D1::Matrix3x2F::Translation(x, y));
+        for (const auto& path : shape) {
+            m_target->DrawGeometry(path.get(), m_brush.get(), icons::strokeUnits / share, m_iconStroke.get());
+        }
         m_target->SetTransform(D2D1::Matrix3x2F::Identity());
     };
-    // Green with a dot underneath while on, as in Spotify. The icons stay in
-    // line with the other controls; their shapes end well above the box's
-    // bottom edge, so the dot fits just under them.
+    // Green with a dot underneath while on, as in Spotify.
     const auto drawDot = [&](const RectF& zone) {
         const float r = config::controlActiveDotDip * k / 2.0f;
         const float x = zone.left + zone.width() / 2.0f;
-        const float y = zone.top + (zone.height() + icon) / 2.0f + r - k;
+        const float y = zone.top + (zone.height() + icon) / 2.0f + r + 0.5f * k;
         m_target->FillEllipse(D2D1::Ellipse({x, y}, r, r), m_brush.get());
     };
     const auto stateColor = [](bool available, bool on) {
         return !available ? config::controlDisabledColor : on ? config::controlActiveColor : config::controlColor;
     };
 
+    fill(config::controlColor);
+    drawIn(layout.previous, m_previousIcon);
+    drawIn(layout.playPause, model.playing ? m_pauseIcon : m_playIcon);
+    drawIn(layout.next, m_nextIcon);
+
     // Shuffle; smart shuffle adds a sparkle, the arrows making room for it.
     const bool shuffleOn = model.shuffle.value_or(false);
     fill(stateColor(model.shuffle.has_value(), shuffleOn));
     if (shuffleOn && model.smartShuffle) {
         const float arrows = config::smartShuffleArrowsShare;
-        drawIcon(layout.shuffle, m_shuffleIcon.get(), arrows, {1.0f - arrows, (1.0f - arrows) / 2.0f});
-        drawIcon(layout.shuffle, m_sparkleIcon.get(), config::smartShuffleSparkleShare, {-0.08f, -0.1f});
+        drawIn(layout.shuffle, m_shuffleIcon, arrows, {1.0f - arrows, (1.0f - arrows) / 2.0f});
+        drawIn(layout.shuffle, m_sparkleIcon, config::smartShuffleSparkleShare, {-0.08f, -0.1f});
     } else {
-        drawIcon(layout.shuffle, m_shuffleIcon.get(), 1.0f, {});
+        drawIn(layout.shuffle, m_shuffleIcon);
     }
     if (shuffleOn) {
         drawDot(layout.shuffle);
@@ -922,7 +884,7 @@ void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel&
     // Repeat: off, the whole list, or one track (the icon with a 1).
     const RepeatMode repeat = model.repeat.value_or(RepeatMode::Off);
     fill(stateColor(model.repeat.has_value(), repeat != RepeatMode::Off));
-    drawIcon(layout.repeat, repeat == RepeatMode::One ? m_repeatOneIcon.get() : m_repeatAllIcon.get(), 1.0f, {});
+    drawIn(layout.repeat, repeat == RepeatMode::One ? m_repeatOneIcon : m_repeatIcon);
     if (repeat != RepeatMode::Off) {
         drawDot(layout.repeat);
     }

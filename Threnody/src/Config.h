@@ -22,8 +22,7 @@ inline constexpr float coverCornerRadiusDip = 4.0f;
 inline constexpr float textMaxWidthDip = 170.0f;
 inline constexpr float textLineGapDip = 1.0f;
 inline constexpr float controlButtonWidthDip = 22.0f;
-inline constexpr float controlGlyphSizeDip = 10.0f;
-inline constexpr float controlIconSizeDip = 15.0f;  // Shuffle and volume: Fluent icons, 20-unit box.
+inline constexpr float controlIconSizeDip = 16.0f;  // The Lucide icons' 24-unit box.
 inline constexpr float controlActiveDotDip = 3.0f;  // Dot under an active toggle, like Spotify's.
 
 // Spectrum visualiser: geometry.
@@ -117,7 +116,7 @@ inline constexpr float cardCoverCornerRadiusDip = 10.0f;
 inline constexpr float cardGapDip = 14.0f;
 inline constexpr float cardControlsHeightDip = 40.0f;
 inline constexpr float cardControlMaxWidthDip = 56.0f;
-inline constexpr float cardControlScale = 1.5f;  // Glyphs and icons, relative to the bar's.
+inline constexpr float cardControlScale = 1.5f;  // Icons, relative to the bar's.
 inline constexpr float resizeEdgeDip = 7.0f;
 
 // Floating widget backdrop: a wash of the cover's colours, like the blurred
