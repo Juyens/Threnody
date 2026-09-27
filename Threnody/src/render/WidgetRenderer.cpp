@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <vector>
 
 namespace threnody::render {
 namespace {
@@ -33,6 +34,33 @@ constexpr float eased(float t) noexcept {
 constexpr float easeInOutCubic(float t) noexcept {
     t = std::clamp(t, 0.0f, 1.0f);
     return t < 0.5f ? 4.0f * t * t * t : 1.0f - (-2.0f * t + 2.0f) * (-2.0f * t + 2.0f) * (-2.0f * t + 2.0f) / 2.0f;
+}
+
+// One box blur pass along rows (`horizontal`) or columns of 32-bit pixels,
+// edges clamped. Three passes approximate a Gaussian.
+void boxBlur(std::vector<std::uint8_t>& pixels, std::vector<std::uint8_t>& scratch, int width, int height, int radius,
+             bool horizontal) {
+    const int lines = horizontal ? height : width;
+    const int length = horizontal ? width : height;
+    const auto at = [&](int line, int i) {
+        return static_cast<std::size_t>(horizontal ? (line * width + i) : (i * width + line)) * 4;
+    };
+    const float span = static_cast<float>(2 * radius + 1);
+    scratch.resize(pixels.size());
+    for (int line = 0; line < lines; ++line) {
+        for (int channel = 0; channel < 4; ++channel) {
+            float sum = 0.0f;
+            for (int k = -radius; k <= radius; ++k) {
+                sum += pixels[at(line, std::clamp(k, 0, length - 1)) + channel];
+            }
+            for (int i = 0; i < length; ++i) {
+                scratch[at(line, i) + channel] = static_cast<std::uint8_t>(std::lround(sum / span));
+                sum += pixels[at(line, std::min(i + radius + 1, length - 1)) + channel];
+                sum -= pixels[at(line, std::max(i - radius, 0)) + channel];
+            }
+        }
+    }
+    pixels.swap(scratch);
 }
 
 // How far a transition started at `start` has come, in [0, 1]; 1 when none
@@ -312,10 +340,10 @@ Result<void> WidgetRenderer::ensureCover(const WidgetModel& model, const RectF& 
     return {};
 }
 
-// Blurs the cover the cheap way: shrink it to a few pixels, then stretch it
-// back over the whole panel with a cubic filter, which leaves only its broad
-// colours. Squashing the square cover into the wide panel is fine at that
-// point. Built once per track and panel size; a new image cross-fades in.
+// A wash of the cover's colours for the floating panel (see the backdrop*
+// constants). Built once per track and panel size, small, and drawn
+// stretched: after the blur there is no detail left to lose. A new image
+// cross-fades in.
 Result<void> WidgetRenderer::ensureBackdrop(const WidgetModel& model, const WidgetLayout& layout) {
     const bool changed = model.coverImage.empty() ? m_backdrop.has_value()
                                                   : !m_backdrop || m_backdrop->version != model.coverVersion;
@@ -341,33 +369,66 @@ Result<void> WidgetRenderer::ensureBackdrop(const WidgetModel& model, const Widg
         return decoded.error();
     }
     IWICImagingFactory& wic = *m_graphics.wic;
-    winrt::com_ptr<IWICBitmapScaler> shrink;
-    winrt::com_ptr<IWICBitmapScaler> stretch;
+    UINT coverWidth = 0;
+    UINT coverHeight = 0;
+    decoded.value()->GetSize(&coverWidth, &coverHeight);
+    if (coverWidth == 0 || coverHeight == 0) {
+        return Error::fromHResult(E_UNEXPECTED, "backdrop: cover has no pixels");
+    }
+    // The cover at the sample width, then the band across its middle.
+    const UINT sampleWidth = config::backdropSampleWidthPx;
+    const UINT sampleHeight = std::max<UINT>(
+        1, static_cast<UINT>(std::lround(static_cast<double>(sampleWidth) * coverHeight / coverWidth)));
+    const UINT bandHeight = std::clamp<UINT>(
+        static_cast<UINT>(std::lround(sampleWidth * layout.height / layout.width * config::backdropBandStretch)), 4,
+        sampleHeight);
+    const WICRect band{0, static_cast<INT>((sampleHeight - bandHeight) / 2), static_cast<INT>(sampleWidth),
+                       static_cast<INT>(bandHeight)};
+
+    winrt::com_ptr<IWICBitmapScaler> scaler;
+    winrt::com_ptr<IWICBitmapClipper> clipper;
     winrt::com_ptr<IWICFormatConverter> converter;
-    HRESULT hr = wic.CreateBitmapScaler(shrink.put());
+    HRESULT hr = wic.CreateBitmapScaler(scaler.put());
     if (SUCCEEDED(hr)) {
-        hr = shrink->Initialize(decoded.value().get(), config::backdropSamplePx, config::backdropSamplePx,
-                                WICBitmapInterpolationModeFant);
+        hr = scaler->Initialize(decoded.value().get(), sampleWidth, sampleHeight, WICBitmapInterpolationModeFant);
     }
     if (SUCCEEDED(hr)) {
-        hr = wic.CreateBitmapScaler(stretch.put());
+        hr = wic.CreateBitmapClipper(clipper.put());
     }
     if (SUCCEEDED(hr)) {
-        hr = stretch->Initialize(shrink.get(), static_cast<UINT>(widthDip), static_cast<UINT>(heightDip),
-                                 WICBitmapInterpolationModeHighQualityCubic);
+        hr = clipper->Initialize(scaler.get(), &band);
     }
     if (SUCCEEDED(hr)) {
         hr = wic.CreateFormatConverter(converter.put());
     }
     if (SUCCEEDED(hr)) {
-        hr = converter->Initialize(stretch.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
+        hr = converter->Initialize(clipper.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
                                    0.0, WICBitmapPaletteTypeMedianCut);
     }
-    if (FAILED(hr)) {
-        return Error::fromHResult(hr, "backdrop scaling");
+    const UINT stride = sampleWidth * 4;
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(stride) * bandHeight);
+    if (SUCCEEDED(hr)) {
+        hr = converter->CopyPixels(nullptr, stride, static_cast<UINT>(pixels.size()), pixels.data());
     }
+    if (FAILED(hr)) {
+        return Error::fromHResult(hr, "backdrop sampling");
+    }
+
+    std::vector<std::uint8_t> scratch;
+    for (int pass = 0; pass < 3; ++pass) {
+        boxBlur(pixels, scratch, static_cast<int>(sampleWidth), static_cast<int>(bandHeight), config::backdropBlurPx,
+                true);
+        boxBlur(pixels, scratch, static_cast<int>(sampleWidth), static_cast<int>(bandHeight), config::backdropBlurPx,
+                false);
+    }
+
     winrt::com_ptr<ID2D1Bitmap> bitmap;
-    hr = m_target->CreateBitmapFromWicBitmap(converter.get(), nullptr, bitmap.put());
+    hr = m_target->CreateBitmap(
+        D2D1::SizeU(sampleWidth, bandHeight), pixels.data(), stride,
+        // At 96 DPI, so a pixel is a DIP whatever the target's scale.
+        D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96.0f,
+                               96.0f),
+        bitmap.put());
     if (SUCCEEDED(hr)) {
         const D2D1_BITMAP_BRUSH_PROPERTIES properties{D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP,
                                                       D2D1_BITMAP_INTERPOLATION_MODE_LINEAR};
@@ -376,6 +437,9 @@ Result<void> WidgetRenderer::ensureBackdrop(const WidgetModel& model, const Widg
     if (FAILED(hr)) {
         return Error::fromHResult(hr, "backdrop bitmap");
     }
+    // The bitmap is a pixel per DIP; stretch it over the panel.
+    m_backdrop->brush->SetTransform(D2D1::Matrix3x2F::Scale(layout.width / static_cast<float>(sampleWidth),
+                                                            layout.height / static_cast<float>(bandHeight)));
     return {};
 }
 

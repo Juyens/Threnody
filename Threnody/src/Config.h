@@ -103,9 +103,15 @@ inline constexpr float marqueeSpeedDipPerSecond = 30.0f;
 inline constexpr float marqueeGapDip = 36.0f;
 inline constexpr float marqueeFadeDip = 12.0f;
 
-// Floating widget backdrop: the cover, blurred by shrinking it to a few
-// pixels and stretching it back, under a shade that keeps the text legible.
-inline constexpr unsigned backdropSamplePx = 8;
+// Floating widget backdrop: a wash of the cover's colours, like the blurred
+// artwork behind Apple Music's player. A band across the middle of the
+// cover (taller than the panel's own proportion, so there is more colour to
+// blend) is scaled to backdropSampleWidthPx wide, blurred with three box
+// passes of backdropBlurPx (close to a Gaussian), and stretched over the
+// panel under a shade that keeps the text legible.
+inline constexpr unsigned backdropSampleWidthPx = 128;
+inline constexpr float backdropBandStretch = 3.0f;  // Band height over the panel's own proportion.
+inline constexpr int backdropBlurPx = 10;
 inline constexpr Color backdropShadeColor{0.0f, 0.0f, 0.0f, 0.50f};
 inline constexpr Color backdropHoverShadeColor{0.0f, 0.0f, 0.0f, 0.38f};
 
