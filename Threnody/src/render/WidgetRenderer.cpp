@@ -209,13 +209,12 @@ Result<void> WidgetRenderer::measureText(const WidgetModel& model, IDWriteTextFo
     return {};
 }
 
-Result<WidgetLayout> WidgetRenderer::layoutCard(const WidgetModel& model, float widthDip, float heightDip) {
+Result<WidgetLayout> WidgetRenderer::layoutCard(const WidgetModel& model) {
     noteTextChange(model);
     if (const Result<void> r = measureText(model, m_fonts.cardTitle(), m_fonts.cardArtist()); !r) {
         return r.error();
     }
-    const WidgetLayout result =
-        WidgetLayout::computeCard(widthDip, heightDip, m_title.metrics.height, m_artist.metrics.height);
+    const WidgetLayout result = WidgetLayout::computeCard(m_title.metrics.height, m_artist.metrics.height);
     if (const Result<void> r = updateTextLine(m_title, model.title, result.title.width(), m_fonts.cardTitle()); !r) {
         return r.error();
     }
@@ -880,6 +879,9 @@ float WidgetRenderer::volumeOsdOpacity(const WidgetModel& model) noexcept {
 
 void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel& model) {
     using namespace config;
+    if (layout.card) {
+        return;  // The card has controls only.
+    }
     const RectF& zone = layout.visualizer;
     const float maxHeight = zone.height();
 

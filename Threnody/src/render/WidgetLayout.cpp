@@ -51,39 +51,29 @@ WidgetLayout WidgetLayout::compute(float height, float titleWidth, float titleHe
     return layout;
 }
 
-WidgetLayout WidgetLayout::computeCard(float width, float height, float titleHeight, float artistHeight) noexcept {
+WidgetLayout WidgetLayout::computeCard(float titleHeight, float artistHeight) noexcept {
     using namespace config;
     WidgetLayout layout{};
     layout.card = true;
     layout.controlScale = cardControlScale;
-    layout.width = std::max(width, cardMinWidthDip);
-    layout.height = std::max(height, cardMinHeightDip);
+    layout.width = cardWidthDip;
     layout.cornerRadius = cardCornerRadiusDip;
     layout.coverCornerRadius = cardCoverCornerRadiusDip;
 
-    const float inner = layout.width - 2.0f * cardPaddingDip;
-    const float textHeight = titleHeight + textLineGapDip + artistHeight;
-    const float below = cardGapDip + textHeight + cardGapDip + cardControlsHeightDip + cardGapDip +
-                        cardVisualizerHeightDip + cardPaddingDip;
-    const float side = std::max(0.0f, std::min(inner, layout.height - cardPaddingDip - below));
-    const float coverLeft = (layout.width - side) / 2.0f;
-    layout.cover = {coverLeft, cardPaddingDip, coverLeft + side, cardPaddingDip + side};
-
-    // Everything under the cover sits at the bottom, so a card taller than
-    // the cover needs keeps the extra room between cover and text.
-    float y = layout.height - cardPaddingDip - cardVisualizerHeightDip;
-    layout.visualizer = {cardPaddingDip, y, cardPaddingDip + inner, y + cardVisualizerHeightDip};
-    y -= cardGapDip + cardControlsHeightDip;
+    const float inner = cardWidthDip - 2.0f * cardPaddingDip;
+    layout.cover = {cardPaddingDip, cardPaddingDip, cardPaddingDip + inner, cardPaddingDip + inner};
+    float y = layout.cover.bottom + cardGapDip;
+    layout.title = {cardPaddingDip, y, cardPaddingDip + inner, y + titleHeight};
+    layout.artist = {cardPaddingDip, layout.title.bottom + textLineGapDip, cardPaddingDip + inner,
+                     layout.title.bottom + textLineGapDip + artistHeight};
+    y = layout.artist.bottom + cardGapDip;
     const float button = std::min(inner / 5.0f, cardControlMaxWidthDip);
-    float x = (layout.width - 5.0f * button) / 2.0f;
+    float x = (cardWidthDip - 5.0f * button) / 2.0f;
     for (RectF* zone : {&layout.shuffle, &layout.previous, &layout.playPause, &layout.next, &layout.volume}) {
         *zone = {x, y, x + button, y + cardControlsHeightDip};
         x += button;
     }
-    y -= cardGapDip + textHeight;
-    layout.title = {cardPaddingDip, y, cardPaddingDip + inner, y + titleHeight};
-    layout.artist = {cardPaddingDip, layout.title.bottom + textLineGapDip, cardPaddingDip + inner,
-                     layout.title.bottom + textLineGapDip + artistHeight};
+    layout.height = y + cardControlsHeightDip + cardPaddingDip;
     return layout;
 }
 

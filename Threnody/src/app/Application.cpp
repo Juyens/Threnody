@@ -424,12 +424,12 @@ SIZE Application::layoutFloating() {
         dpi = m_layout ? m_layout->dpi : 96;
     }
     m_widgetDpi = dpi;
-    const bool card = m_settings.cardWidthDip > 0 && m_settings.cardHeightDip > 0;
-    const float heightDip = card ? static_cast<float>(m_settings.cardHeightDip) : floatingHeightDip();
-    float widthDip = card ? static_cast<float>(m_settings.cardWidthDip) : config::widgetMaxWidthDip / 2.0f;
+    const bool card = m_settings.card;
+    const float heightDip = floatingHeightDip();
+    float widthDip = config::widgetMaxWidthDip / 2.0f;
     if (m_renderer) {
-        Result<render::WidgetLayout> widgetLayout = card ? m_renderer->layoutCard(m_model, widthDip, heightDip)
-                                                         : m_renderer->layout(m_model, heightDip);
+        Result<render::WidgetLayout> widgetLayout =
+            card ? m_renderer->layoutCard(m_model) : m_renderer->layout(m_model, heightDip);
         if (widgetLayout) {
             m_widgetLayout = widgetLayout.value();
             widthDip = m_widgetLayout.width;
@@ -477,7 +477,7 @@ void Application::beginResize(UINT edges) {
     if (m_volumeFlyout) {
         m_volumeFlyout->close();
     }
-    m_drag = Drag{.edges = edges};
+    m_drag = Drag{.edges = edges, .startCard = m_settings.card};
     GetWindowRect(m_widget.hwnd(), &m_drag->startRect);
     GetCursorPos(&m_drag->startCursor);
     m_wheelHook.reset();
@@ -551,8 +551,9 @@ void Application::onDragFrame() {
     }
 
     if (m_drag->edges != 0) {
-        // Stretched past the snap height it is a card of the size asked for
-        // (within limits); below it, the bar. Fixed edges stay where they were.
+        // Pulled far enough taller the bar snaps to the card, and pulled far
+        // enough shorter the card snaps to the bar; nothing in between.
+        // The edges opposite the grabbed one stay where they were.
         POINT cursor{};
         GetCursorPos(&cursor);
         const RECT& start = m_drag->startRect;
@@ -563,17 +564,12 @@ void Application::onDragFrame() {
         wanted.right += (m_drag->edges & taskbar::WidgetWindow::EdgeRight) ? dx : 0;
         wanted.top += (m_drag->edges & taskbar::WidgetWindow::EdgeTop) ? dy : 0;
         wanted.bottom += (m_drag->edges & taskbar::WidgetWindow::EdgeBottom) ? dy : 0;
-        const float widthDip = pixelsToDip(win32::width(wanted), m_widgetDpi);
-        const float heightDip = pixelsToDip(win32::height(wanted), m_widgetDpi);
-        if (heightDip >= config::cardSnapHeightDip) {
-            m_settings.cardWidthDip = static_cast<int>(
-                std::lround(std::clamp(widthDip, config::cardMinWidthDip, config::cardMaxSideDip)));
-            m_settings.cardHeightDip = static_cast<int>(
-                std::lround(std::clamp(heightDip, config::cardMinHeightDip, config::cardMaxSideDip)));
-        } else {
-            m_settings.cardWidthDip = 0;
-            m_settings.cardHeightDip = 0;
+        const float grown = pixelsToDip(win32::height(wanted) - win32::height(start), m_widgetDpi);
+        const bool card = m_drag->startCard ? grown > -config::cardSnapDeltaDip : grown >= config::cardSnapDeltaDip;
+        if (card == m_settings.card) {
+            return;  // Still the same size; nothing to move.
         }
+        m_settings.card = card;
         const SIZE size = layoutFloating();
         const LONG left = (m_drag->edges & taskbar::WidgetWindow::EdgeLeft) ? start.right - size.cx : start.left;
         const LONG top = (m_drag->edges & taskbar::WidgetWindow::EdgeTop) ? start.bottom - size.cy : start.top;
@@ -632,8 +628,7 @@ void Application::endDrag() {
     if (dock) {
         m_model.floating = false;
         m_settings.floating = false;
-        m_settings.cardWidthDip = 0;  // In the taskbar it is a bar again.
-        m_settings.cardHeightDip = 0;
+        m_settings.card = false;  // In the taskbar it is a bar again.
         saveSettings();
         log::info("widget docked");
         syncWithTaskbar(true);  // Embedding replaces the floating window.
@@ -1210,8 +1205,7 @@ void Application::applySettings(const settings::Settings& updated) {
     m_settings.floating = previous.floating;
     m_settings.floatingX = previous.floatingX;
     m_settings.floatingY = previous.floatingY;
-    m_settings.cardWidthDip = previous.cardWidthDip;
-    m_settings.cardHeightDip = previous.cardHeightDip;
+    m_settings.card = previous.card;
 
     if (previous.colorMode != updated.colorMode) {
         m_model.colorMode = updated.colorMode;

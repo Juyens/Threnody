@@ -193,6 +193,7 @@ private:
         UINT edges{};  // Non-zero: resizing from these edges instead of moving.
         RECT startRect{};
         POINT startCursor{};
+        bool startCard{false};
     };
     float m_barWidthDip{};  // Last bar width, for the dock slot while the widget is a card.
     std::optional<Drag> m_drag;

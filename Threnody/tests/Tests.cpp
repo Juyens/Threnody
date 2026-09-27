@@ -148,15 +148,14 @@ void testLayout() {
           "zones are laid out left to right");
     check(wide.title.width() <= threnody::config::textMaxWidthDip, "text column is clamped");
 
-    const WidgetLayout card = WidgetLayout::computeCard(280.0f, 420.0f, 22.0f, 18.0f);
-    check(card.card && card.width == 280.0f && card.height == 420.0f, "card keeps its size");
-    check(card.cover.width() == card.cover.height() && card.cover.width() > 150.0f, "card cover is a large square");
+    const WidgetLayout card = WidgetLayout::computeCard(22.0f, 18.0f);
+    check(card.card && card.width == threnody::config::cardWidthDip, "card has the standard width");
+    check(card.cover.width() == card.cover.height() &&
+              card.cover.width() == card.width - 2.0f * threnody::config::cardPaddingDip,
+          "card cover is a square spanning the card");
     check(card.cover.bottom <= card.title.top && card.artist.bottom <= card.previous.top &&
-              card.volume.bottom <= card.visualizer.top && card.visualizer.bottom <= card.height,
-          "card stacks cover, text, controls and visualiser");
-    const WidgetLayout tiny = WidgetLayout::computeCard(50.0f, 50.0f, 22.0f, 18.0f);
-    check(tiny.width >= threnody::config::cardMinWidthDip && tiny.height >= threnody::config::cardMinHeightDip,
-          "card has a minimum size");
+              card.volume.bottom <= card.height && card.visualizer.width() == 0.0f,
+          "card stacks cover, text and controls, with no visualiser");
 }
 
 void testBeatDetector() {
@@ -225,8 +224,7 @@ void testSettingsRoundTrip() {
     original.floating = true;
     original.floatingX = -1200;
     original.floatingY = 340;
-    original.cardWidthDip = 280;
-    original.cardHeightDip = 420;
+    original.card = true;
     original.spotifyClientId = "abc";
     original.spotifyRefreshTokenProtected = "sealed";
     check(settings::save(original, file).ok(), "settings save");

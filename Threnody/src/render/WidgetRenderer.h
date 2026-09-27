@@ -24,8 +24,8 @@ public:
 
     // Measures the model's text and lays the widget out for `heightDip`.
     [[nodiscard]] Result<WidgetLayout> layout(const WidgetModel& model, float heightDip);
-    // The same for the card, which takes the size it is given.
-    [[nodiscard]] Result<WidgetLayout> layoutCard(const WidgetModel& model, float widthDip, float heightDip);
+    // The same for the card, whose size is fixed.
+    [[nodiscard]] Result<WidgetLayout> layoutCard(const WidgetModel& model);
 
     // Renders one frame into `surface` (already sized in pixels) at `dpi`.
     [[nodiscard]] Result<void> draw(LayeredSurface& surface, const WidgetModel& model, const WidgetLayout& layout,

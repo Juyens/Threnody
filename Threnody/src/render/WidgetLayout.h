@@ -46,11 +46,10 @@ struct WidgetLayout {
     [[nodiscard]] static WidgetLayout compute(float height, float titleWidth, float titleHeight, float artistWidth,
                                               float artistHeight) noexcept;
 
-    // The card: fills `width` x `height` (at least the card minimum): the
-    // cover as large as fits at the top, then title and artist, the
-    // controls spread across, and the visualiser along the bottom.
-    [[nodiscard]] static WidgetLayout computeCard(float width, float height, float titleHeight,
-                                                  float artistHeight) noexcept;
+    // The card, always cardWidthDip wide: the cover across the top, then
+    // title and artist, then the controls spread across. No visualiser (its
+    // zone is empty); the height follows from the text.
+    [[nodiscard]] static WidgetLayout computeCard(float titleHeight, float artistHeight) noexcept;
 };
 
 }  // namespace threnody::render
