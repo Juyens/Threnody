@@ -45,6 +45,10 @@ WidgetWindow::~WidgetWindow() = default;
 Result<void> WidgetWindow::embed(HWND taskbar, const RECT& rect) {
     m_hwnd.reset();
     m_floating = false;
+    // A new window: the pointer has not entered it yet, so the next move
+    // arms the leave notification again.
+    m_hovering = false;
+    m_press.reset();
 
     // Created as a top-level popup first, then converted to a child; this is
     // the sequence that has been verified to work against the taskbar.

@@ -1085,11 +1085,12 @@ void Application::onPointerMove(POINT position) {
     setHoverFading(true);
 
     if (!m_wheelHook) {
+        // The widget's window is looked up on every event: docking and
+        // undocking replace it while the hook may still be installed.
         const HWND messageWindow = m_messageWindow.get();
-        const HWND widget = m_widget.hwnd();
-        m_wheelHook = std::make_unique<interaction::WheelHook>([messageWindow, widget](POINT screen, int delta) {
+        m_wheelHook = std::make_unique<interaction::WheelHook>([this, messageWindow](POINT screen, int delta) {
             RECT bounds{};
-            if (!GetWindowRect(widget, &bounds) || !PtInRect(&bounds, screen)) {
+            if (!GetWindowRect(m_widget.hwnd(), &bounds) || !PtInRect(&bounds, screen)) {
                 return false;
             }
             PostMessageW(messageWindow, WM_THRENODY_WHEEL, static_cast<WPARAM>(static_cast<INT_PTR>(delta)), 0);
