@@ -32,7 +32,9 @@ namespace {
 
 constexpr wchar_t authorizeEndpoint[] = L"https://accounts.spotify.com/authorize";
 constexpr wchar_t tokenEndpoint[] = L"https://accounts.spotify.com/api/token";
-constexpr wchar_t nowPlayingEndpoint[] = L"https://api.spotify.com/v1/me/player/currently-playing";
+// The player state rather than "currently playing": the same item, plus the
+// (undocumented) smart_shuffle flag that nothing else exposes.
+constexpr wchar_t nowPlayingEndpoint[] = L"https://api.spotify.com/v1/me/player";
 constexpr wchar_t queueEndpoint[] = L"https://api.spotify.com/v1/me/player/queue";
 constexpr std::size_t artworkCacheSize = 4;  // The current cover and the next one, with room to spare.
 constexpr unsigned authorizationTimeoutSeconds = 300;
@@ -97,6 +99,7 @@ struct SpotifyClient::Shared {
     std::chrono::steady_clock::time_point accessTokenExpiry{};
     Status status;
     std::optional<TrackLinks> links;
+    std::optional<bool> smartShuffle;
     std::deque<Artwork> artworks;  // Most recent first.
     std::uint32_t queueRequests{};
     std::optional<QueueResult> queue;
@@ -256,11 +259,12 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
         if (response.StatusCode() == HttpStatusCode::NoContent) {
             std::scoped_lock lock{shared->mutex};
             shared->links.reset();
+            shared->smartShuffle.reset();
             co_return;
         }
         const winrt::hstring body = co_await response.Content().ReadAsStringAsync();
         if (!response.IsSuccessStatusCode()) {
-            log::warn("Spotify currently-playing: HTTP {}", static_cast<int>(response.StatusCode()));
+            log::warn("Spotify player state: HTTP {}", static_cast<int>(response.StatusCode()));
             if (response.StatusCode() == HttpStatusCode::Unauthorized) {
                 std::scoped_lock lock{shared->mutex};
                 shared->accessToken.clear();  // Force a refresh next time.
@@ -268,6 +272,10 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
             co_return;
         }
         const json j = json::parse(winrt::to_string(body));
+        if (const auto smart = j.find("smart_shuffle"); smart != j.end() && smart->is_boolean()) {
+            std::scoped_lock lock{shared->mutex};
+            shared->smartShuffle = smart->get<bool>();
+        }
         const auto item = j.find("item");
         if (item == j.end() || !item->is_object()) {
             std::scoped_lock lock{shared->mutex};
@@ -288,9 +296,9 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
         }
         shared->notify();
     } catch (const winrt::hresult_error& e) {
-        log::warn("Spotify currently-playing failed: {}", describe(e));
+        log::warn("Spotify player state failed: {}", describe(e));
     } catch (const json::exception& e) {
-        log::warn("Spotify currently-playing: bad JSON: {}", e.what());
+        log::warn("Spotify player state: bad JSON: {}", e.what());
     }
 }
 
@@ -521,6 +529,11 @@ void SpotifyClient::requestNowPlaying() {
 std::optional<TrackLinks> SpotifyClient::links() const {
     std::scoped_lock lock{m_shared->mutex};
     return m_shared->links;
+}
+
+std::optional<bool> SpotifyClient::smartShuffle() const {
+    std::scoped_lock lock{m_shared->mutex};
+    return m_shared->smartShuffle;
 }
 
 void SpotifyClient::requestArtwork(std::wstring url) {

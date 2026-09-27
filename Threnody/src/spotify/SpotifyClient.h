@@ -80,9 +80,11 @@ public:
     void beginAuthorization(std::string clientId);
     void disconnect();
 
-    // Fetches what is playing; result appears in `links()`.
+    // Fetches the player state: what is playing (result in `links()`) and
+    // whether smart shuffle is on (`smartShuffle()`, empty until known).
     void requestNowPlaying();
     [[nodiscard]] std::optional<TrackLinks> links() const;
+    [[nodiscard]] std::optional<bool> smartShuffle() const;
 
     // Fetches the queue; the answer appears in `queue()` tagged with the
     // returned request number, so a stale answer can be told apart.

@@ -2,7 +2,7 @@
 
 ## Fluent UI System Icons
 
-The shuffle and speaker icons in `Threnody/src/render/Icons.h` are path data
+The shuffle, repeat, sparkle and speaker icons in `Threnody/src/render/Icons.h` are path data
 from [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons).
 
 ```

@@ -206,24 +206,13 @@ inline constexpr Color lockOverlayBackgroundColor{0.125f, 0.125f, 0.125f, 0.90f}
 inline constexpr Color lockOverlayBorderColor{1.0f, 1.0f, 1.0f, 0.09f};
 inline constexpr Color lockOverlayForegroundColor{1.0f, 1.0f, 1.0f, 1.0f};
 
-// Volume flyout: opens over the widget's volume button, like Spotify's own
-// slider. Changes Spotify's session volume in the Windows mixer.
-inline constexpr float volumeFlyoutWidthDip = 220.0f;
-inline constexpr float volumeFlyoutHeightDip = 44.0f;
-inline constexpr float volumeFlyoutGapDip = 8.0f;          // Between the flyout and the taskbar.
-inline constexpr float volumeFlyoutCornerRadiusDip = 8.0f;
-inline constexpr float volumeFlyoutIconZoneDip = 40.0f;    // Mute button at the left.
-inline constexpr float volumeFlyoutIconSizeDip = 18.0f;
-inline constexpr float volumeFlyoutValueZoneDip = 42.0f;   // Percentage at the right.
-inline constexpr float volumeFlyoutTrackHeightDip = 4.0f;
-inline constexpr float volumeFlyoutThumbRadiusDip = 6.0f;
-inline constexpr float volumeFlyoutFontSizeDip = 12.0f;
-inline constexpr float volumeStep = 0.05f;                 // Per wheel notch or arrow key.
-inline constexpr unsigned volumeFlyoutFadeMs = 120;
-inline constexpr Color volumeFlyoutBackgroundColor{0.125f, 0.125f, 0.125f, 0.96f};
-inline constexpr Color volumeFlyoutBorderColor{1.0f, 1.0f, 1.0f, 0.09f};
-inline constexpr Color volumeFlyoutTrackColor{1.0f, 1.0f, 1.0f, 0.25f};
-inline constexpr Color volumeFlyoutFillColor{1.0f, 1.0f, 1.0f, 0.95f};
+// Popups (the up-next bubble) and level indicators share these.
+inline constexpr float popupCornerRadiusDip = 8.0f;
+inline constexpr Color popupBackgroundColor{0.125f, 0.125f, 0.125f, 0.96f};
+inline constexpr Color popupBorderColor{1.0f, 1.0f, 1.0f, 0.09f};
+inline constexpr Color levelTrackColor{1.0f, 1.0f, 1.0f, 0.25f};
+inline constexpr Color levelFillColor{1.0f, 1.0f, 1.0f, 0.95f};
+inline constexpr float volumeStep = 0.05f;  // Spotify's mixer volume per wheel notch.
 
 // Dragging the widget out of the taskbar and back. Out of it the widget
 // floats above everything on its own dark panel (the taskbar's translucent
@@ -273,9 +262,19 @@ inline constexpr float cardOsdValueDip = 30.0f;    // Room for "100".
 inline constexpr float cardOsdLiftDip = 6.0f;      // Rises this much as it appears.
 inline constexpr Color cardOsdBackgroundColor{0.06f, 0.06f, 0.06f, 0.72f};
 
-// SMTC reports Spotify's state seconds late. After a shuffle click the
-// widget shows the new state and ignores a contrary report for this long.
-inline constexpr unsigned shuffleConfirmHoldMs = 15000;
+// SMTC reports Spotify's state seconds late. After a shuffle or repeat
+// click the widget shows the new state and ignores a contrary report for
+// this long.
+inline constexpr unsigned toggleConfirmHoldMs = 15000;
+// Smart shuffle is only visible through the Web API's player state, read
+// on track changes, a moment after a shuffle click, and every this many
+// health ticks while a session exists.
+inline constexpr unsigned playerStateRefreshTicks = 8;
+inline constexpr unsigned playerStateRecheckMs = 1500;
+// The smart shuffle icon: the shuffle arrows shrunk toward the lower right,
+// a sparkle in the upper left.
+inline constexpr float smartShuffleArrowsShare = 0.82f;
+inline constexpr float smartShuffleSparkleShare = 0.48f;
 
 // Settings window (Dear ImGui), client area in DIPs.
 inline constexpr int settingsWindowWidthDip = 460;

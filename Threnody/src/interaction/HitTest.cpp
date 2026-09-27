@@ -24,8 +24,8 @@ Zone hitTest(const render::WidgetLayout& layout, float x, float y) noexcept {
     if (layout.next.contains(x, y)) {
         return Zone::Next;
     }
-    if (layout.volume.contains(x, y)) {
-        return Zone::Volume;
+    if (layout.repeat.contains(x, y)) {
+        return Zone::Repeat;
     }
     // The visualiser zone is generous: the whole column, not just the bars.
     // The card has none.

@@ -35,9 +35,9 @@ Every part of it is clickable:
 | **Cover** or background | Raises Spotify, or minimises it if already in front |
 | **Title** | Opens the track in Spotify |
 | **Artist** | Opens the artist in Spotify |
-| **Shuffle** | Turns shuffle on or off (green with a dot while on) |
+| **Shuffle** | Turns shuffle on or off (green with a dot while on; a sparkle for Spotify's smart shuffle) |
 | **⏮ ⏯ ⏭** | Previous, play/pause, next |
-| **Speaker** | Opens a volume slider for Spotify alone: drag, scroll or use the arrow keys; the speaker in it mutes |
+| **Repeat** | Cycles repeat off, the whole list, and one track, as Spotify's button does |
 | **Spectrum** | Cycles the colour mode |
 
 Resting the pointer on **⏭** shows what plays next (with the Web API connected), and the

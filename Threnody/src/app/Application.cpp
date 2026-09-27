@@ -34,6 +34,7 @@ constexpr UINT_PTR dragTimerId = 5;
 constexpr UINT_PTR animationTimerId = 6;
 constexpr UINT_PTR peekTimerId = 7;
 constexpr UINT_PTR queueRetryTimerId = 8;
+constexpr UINT_PTR playerRecheckTimerId = 9;
 constexpr UINT WM_THRENODY_ALIGNMENT_CHANGED = WM_APP + 1;
 constexpr UINT WM_THRENODY_MEDIA_CHANGED = WM_APP + 2;
 constexpr UINT WM_THRENODY_LOCK_KEY = WM_APP + 3;  // wParam: LockKey, lParam: on
@@ -256,8 +257,21 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                     m_media->poll();
                 }
                 refreshStaleLinks();
-                syncShuffle(m_media ? m_media->snapshot().shuffle : std::nullopt);
+                if (m_media) {
+                    const media::NowPlaying now = m_media->snapshot();
+                    syncShuffle(now.shuffle);
+    syncRepeat(now.repeat);
+                    syncRepeat(now.repeat);
+                }
                 refreshVolume();
+                // Smart shuffle can change in Spotify at any time and only
+                // the Web API shows it.
+                if (++m_playerStateTicks >= config::playerStateRefreshTicks) {
+                    m_playerStateTicks = 0;
+                    if (m_sessionAvailable && m_spotify && m_spotify->connected()) {
+                        m_spotify->requestNowPlaying();
+                    }
+                }
             } else if (wParam == spectrumTimerId) {
                 onSpectrumFrame();
             } else if (wParam == hoverTimerId) {
@@ -271,7 +285,13 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             } else if (wParam == peekTimerId) {
                 KillTimer(hwnd, peekTimerId);
             KillTimer(hwnd, queueRetryTimerId);
+            KillTimer(hwnd, playerRecheckTimerId);
                 updateQueuePeek();
+            } else if (wParam == playerRecheckTimerId) {
+                KillTimer(hwnd, playerRecheckTimerId);
+                if (m_spotify && m_spotify->connected()) {
+                    m_spotify->requestNowPlaying();
+                }
             } else if (wParam == queueRetryTimerId) {
                 KillTimer(hwnd, queueRetryTimerId);
                 if (!m_upNextKnown && m_queueRequest == 0 && m_peekHoverSince != 0 && m_spotify) {
@@ -474,9 +494,6 @@ void Application::beginResize(UINT edges) {
     if (m_drag || !m_widget.isFloating()) {
         return;
     }
-    if (m_volumeFlyout) {
-        m_volumeFlyout->close();
-    }
     m_drag = Drag{.edges = edges, .startCard = m_settings.card};
     GetWindowRect(m_widget.hwnd(), &m_drag->startRect);
     GetCursorPos(&m_drag->startCursor);
@@ -501,9 +518,6 @@ std::optional<RECT> Application::dockSlot() const {
 void Application::beginDrag(POINT grab) {
     if (m_drag || !m_widget.hwnd()) {
         return;
-    }
-    if (m_volumeFlyout) {
-        m_volumeFlyout->close();
     }
     RECT screen{};
     GetWindowRect(m_widget.hwnd(), &screen);
@@ -862,8 +876,8 @@ void Application::onWidgetClick(POINT position) {
             m_lastTextChangeTick = GetTickCount64();
             forgetUpNext();  // That track is what plays now; the bubble returns with the new next.
             break;
-        case interaction::Zone::Volume:
-            toggleVolumeFlyout();
+        case interaction::Zone::Repeat:
+            cycleRepeat();
             break;
         case interaction::Zone::Visualizer:
             toggleColorMode();
@@ -875,10 +889,53 @@ void Application::toggleShuffle() {
     if (!m_model.shuffle) {
         return;  // Spotify offers no shuffle control right now.
     }
+    // On (smart or not) goes off, off goes on. Smart shuffle can only be
+    // switched on in Spotify: neither SMTC nor the Web API can set it.
     const bool active = !*m_model.shuffle;
     m_media->setShuffle(active);
     m_model.shuffle = active;
-    m_shuffleHoldUntil = GetTickCount64() + config::shuffleConfirmHoldMs;
+    m_model.smartShuffle = false;
+    m_shuffleHoldUntil = GetTickCount64() + config::toggleConfirmHoldMs;
+    SetTimer(m_messageWindow.get(), playerRecheckTimerId, config::playerStateRecheckMs, nullptr);
+    repaintWidget();
+}
+
+// Smart shuffle as the Web API last reported it, unless a shuffle click is
+// still waiting for Spotify to catch up.
+void Application::syncSmartShuffle() {
+    if (!m_spotify || GetTickCount64() < m_shuffleHoldUntil) {
+        return;
+    }
+    const bool smart = m_spotify->smartShuffle().value_or(false);
+    if (smart != m_model.smartShuffle) {
+        m_model.smartShuffle = smart;
+        log::info("smart shuffle {}", smart ? "on" : "off");
+        repaintWidget();
+    }
+}
+
+// Off, all, one, off: Spotify's own order.
+void Application::cycleRepeat() {
+    if (!m_model.repeat) {
+        return;  // Spotify offers no repeat control right now.
+    }
+    const RepeatMode next = nextRepeatMode(*m_model.repeat);
+    m_media->setRepeat(next);
+    m_model.repeat = next;
+    m_repeatHoldUntil = GetTickCount64() + config::toggleConfirmHoldMs;
+    repaintWidget();
+}
+
+void Application::syncRepeat(const std::optional<RepeatMode>& reported) {
+    if (reported == m_model.repeat) {
+        m_repeatHoldUntil = 0;
+        return;
+    }
+    if (reported && GetTickCount64() < m_repeatHoldUntil) {
+        return;
+    }
+    m_repeatHoldUntil = 0;
+    m_model.repeat = reported;
     repaintWidget();
 }
 
@@ -895,50 +952,6 @@ void Application::syncShuffle(const std::optional<bool>& reported) {
     m_shuffleHoldUntil = 0;
     m_model.shuffle = reported;
     repaintWidget();
-}
-
-void Application::toggleVolumeFlyout() {
-    if (!m_volumeFlyout) {
-        Result<std::unique_ptr<overlay::VolumeFlyout>> flyout = overlay::VolumeFlyout::create(
-            m_instance, {
-                            .onLevel =
-                                [this](float level) {
-                                    if (m_volume.read().value_or(audio::VolumeState{}).muted) {
-                                        m_volume.setMuted(false);
-                                    }
-                                    m_volume.setLevel(level);
-                                    showVolume(audio::VolumeState{.level = level});
-                                },
-                            .onToggleMute =
-                                [this] {
-                                    if (const std::optional<audio::VolumeState> state = m_volume.read()) {
-                                        m_volume.setMuted(!state->muted);
-                                    }
-                                    showVolume(m_volume.read());
-                                },
-                        });
-        if (!flyout) {
-            log::error("volume flyout unavailable: {}", flyout.error().describe());
-            return;
-        }
-        m_volumeFlyout = std::move(flyout.value());
-    }
-    if (m_volumeFlyout->visible()) {
-        m_volumeFlyout->close();
-        return;
-    }
-    if (m_volumeFlyout->justClosed() || !m_layout) {
-        return;  // This click is what closed it.
-    }
-
-    m_volume.refresh();
-    const std::optional<audio::VolumeState> state = m_volume.read();
-    showVolume(state);
-    if (!state) {
-        log::info("volume: Spotify has no audio session");
-        return;
-    }
-    m_volumeFlyout->open(zoneOnScreen(m_widgetLayout.volume), m_widgetDpi, state->level, state->muted);
 }
 
 // A widget zone in screen pixels, full widget height.
@@ -1040,9 +1053,6 @@ void Application::refreshVolume() {
 void Application::showVolume(const std::optional<audio::VolumeState>& state) {
     const std::optional<float> shown =
         state ? std::optional<float>{state->muted ? 0.0f : state->level} : std::nullopt;
-    if (state && m_volumeFlyout) {
-        m_volumeFlyout->setState(state->level, state->muted);
-    }
     if (shown != m_model.volume) {
         m_model.volume = shown;
         repaintWidget();
@@ -1297,6 +1307,7 @@ void Application::onSpotifyChanged() {
         if (applyArtworkFallback()) {
             repaintWidget();
         }
+        syncSmartShuffle();
         // The queue answered, or the next track's cover arrived.
         if (m_queueRequest != 0) {
             if (const std::optional<spotify::QueueResult> queue = m_spotify->queue();

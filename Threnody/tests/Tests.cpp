@@ -143,8 +143,8 @@ void testLayout() {
     check(narrow.width < wide.width, "wider text widens the widget");
     check(wide.width <= static_cast<float>(threnody::config::widgetMaxWidthDip), "width is capped");
     check(narrow.cover.left < narrow.title.left && narrow.title.right <= narrow.shuffle.left &&
-              narrow.shuffle.right <= narrow.previous.left && narrow.next.right <= narrow.volume.left &&
-              narrow.volume.right <= narrow.visualizer.left,
+              narrow.shuffle.right <= narrow.previous.left && narrow.next.right <= narrow.repeat.left &&
+              narrow.repeat.right <= narrow.visualizer.left,
           "zones are laid out left to right");
     check(wide.title.width() <= threnody::config::textMaxWidthDip, "text column is clamped");
 
@@ -154,7 +154,7 @@ void testLayout() {
               card.cover.width() == card.width - 2.0f * threnody::config::cardPaddingDip,
           "card cover is a square spanning the card");
     check(card.cover.bottom <= card.title.top && card.artist.bottom <= card.previous.top &&
-              card.volume.bottom <= card.height && card.visualizer.width() == 0.0f,
+              card.repeat.bottom <= card.height && card.visualizer.width() == 0.0f,
           "card stacks cover, text and controls, with no visualiser");
 }
 

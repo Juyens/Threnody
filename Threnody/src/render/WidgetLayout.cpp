@@ -44,7 +44,7 @@ WidgetLayout WidgetLayout::compute(float height, float titleWidth, float titleHe
     x += controlButtonWidthDip;
     layout.next = {x, 0.0f, x + controlButtonWidthDip, height};
     x += controlButtonWidthDip;
-    layout.volume = {x, 0.0f, x + controlButtonWidthDip, height};
+    layout.repeat = {x, 0.0f, x + controlButtonWidthDip, height};
     x += controlButtonWidthDip + widgetGapDip;
 
     layout.visualizer = {x, widgetPaddingDip, x + visualizerWidth, height - widgetPaddingDip};
@@ -69,7 +69,7 @@ WidgetLayout WidgetLayout::computeCard(float titleHeight, float artistHeight) no
     y = layout.artist.bottom + cardGapDip;
     const float button = std::min(inner / 5.0f, cardControlMaxWidthDip);
     float x = (cardWidthDip - 5.0f * button) / 2.0f;
-    for (RectF* zone : {&layout.shuffle, &layout.previous, &layout.playPause, &layout.next, &layout.volume}) {
+    for (RectF* zone : {&layout.shuffle, &layout.previous, &layout.playPause, &layout.next, &layout.repeat}) {
         *zone = {x, y, x + button, y + cardControlsHeightDip};
         x += button;
     }

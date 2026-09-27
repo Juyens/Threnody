@@ -111,6 +111,9 @@ private:
     winrt::com_ptr<ID2D1PathGeometry> m_previousGlyph;
     winrt::com_ptr<ID2D1PathGeometry> m_nextGlyph;
     winrt::com_ptr<ID2D1PathGeometry> m_shuffleIcon;
+    winrt::com_ptr<ID2D1PathGeometry> m_sparkleIcon;
+    winrt::com_ptr<ID2D1PathGeometry> m_repeatAllIcon;
+    winrt::com_ptr<ID2D1PathGeometry> m_repeatOneIcon;
     std::array<winrt::com_ptr<ID2D1PathGeometry>, 4> m_speakerIcons;  // Muted, low, mid, high.
 
     TextLine m_title;

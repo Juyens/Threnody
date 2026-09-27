@@ -230,12 +230,12 @@ Result<void> QueuePeek::draw() {
 
     m_target->BeginDraw();
     m_target->Clear(D2D1_COLOR_F{0.0f, 0.0f, 0.0f, 0.0f});
-    fill(volumeFlyoutBackgroundColor);
-    m_target->FillRoundedRectangle({{0.0f, 0.0f, width, height}, volumeFlyoutCornerRadiusDip, volumeFlyoutCornerRadiusDip},
+    fill(popupBackgroundColor);
+    m_target->FillRoundedRectangle({{0.0f, 0.0f, width, height}, popupCornerRadiusDip, popupCornerRadiusDip},
                                    m_brush.get());
-    fill(volumeFlyoutBorderColor);
+    fill(popupBorderColor);
     m_target->DrawRoundedRectangle(
-        {{0.5f, 0.5f, width - 0.5f, height - 0.5f}, volumeFlyoutCornerRadiusDip, volumeFlyoutCornerRadiusDip},
+        {{0.5f, 0.5f, width - 0.5f, height - 0.5f}, popupCornerRadiusDip, popupCornerRadiusDip},
         m_brush.get(), 1.0f);
 
     const float coverTop = (height - queuePeekCoverDip) / 2.0f;

@@ -10,7 +10,6 @@
 #include "overlay/KeyboardHook.h"
 #include "overlay/LockKeyOverlay.h"
 #include "overlay/QueuePeek.h"
-#include "overlay/VolumeFlyout.h"
 #include "render/LayeredSurface.h"
 #include "render/WidgetLayout.h"
 #include "render/WidgetModel.h"
@@ -88,7 +87,9 @@ private:
     // the flyout and polled on the health tick.
     void toggleShuffle();
     void syncShuffle(const std::optional<bool>& reported);
-    void toggleVolumeFlyout();
+    void syncSmartShuffle();
+    void cycleRepeat();
+    void syncRepeat(const std::optional<RepeatMode>& reported);
     void refreshVolume();
     void showVolume(const std::optional<audio::VolumeState>& state);
     void onWheel(int delta);
@@ -178,7 +179,6 @@ private:
     ULONGLONG m_hoverFrameTick{};
 
     std::unique_ptr<overlay::LockKeyOverlay> m_lockOverlay;
-    std::unique_ptr<overlay::VolumeFlyout> m_volumeFlyout;  // Created on first use.
     std::unique_ptr<taskbar::DockPreview> m_dockPreview;    // Created on first drag.
     std::unique_ptr<overlay::QueuePeek> m_queuePeek;        // Created on first peek.
     std::unique_ptr<interaction::WheelHook> m_wheelHook;    // Only while the pointer is over the widget.
@@ -201,6 +201,8 @@ private:
     BYTE m_widgetAlpha{255};
     audio::SpotifyVolume m_volume;
     ULONGLONG m_shuffleHoldUntil{};
+    ULONGLONG m_repeatHoldUntil{};
+    unsigned m_playerStateTicks{};
     std::unique_ptr<overlay::KeyboardHook> m_keyboardHook;
     bool m_overlayTestState{false};
 

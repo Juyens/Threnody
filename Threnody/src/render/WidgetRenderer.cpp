@@ -147,11 +147,15 @@ Result<void> WidgetRenderer::ensureGlyphs() {
     }
     m_nextGlyph = std::move(geometry.value());
 
-    geometry = pathGeometryFromSvg(*m_graphics.d2d, icons::shuffle);
-    if (!geometry) {
-        return geometry.error();
+    for (const auto& [path, target] : {std::pair{icons::shuffle, &m_shuffleIcon}, std::pair{icons::sparkle, &m_sparkleIcon},
+                                       std::pair{icons::repeatAll, &m_repeatAllIcon},
+                                       std::pair{icons::repeatOne, &m_repeatOneIcon}}) {
+        geometry = pathGeometryFromSvg(*m_graphics.d2d, path);
+        if (!geometry) {
+            return geometry.error();
+        }
+        *target = std::move(geometry.value());
     }
-    m_shuffleIcon = std::move(geometry.value());
 
     const std::array speakers{icons::speakerMute, icons::speaker0, icons::speaker1, icons::speaker2};
     for (std::size_t i = 0; i < speakers.size(); ++i) {
@@ -636,7 +640,7 @@ void WidgetRenderer::drawHoverHighlight(const WidgetLayout& layout, const Widget
         case Zone::Previous: area = layout.previous; break;
         case Zone::PlayPause: area = layout.playPause; break;
         case Zone::Next: area = layout.next; break;
-        case Zone::Volume: area = layout.volume; break;
+        case Zone::Repeat: area = layout.repeat; break;
         case Zone::Title: area = layout.title; break;
         case Zone::Artist: area = layout.artist; break;
         default: return;
@@ -715,10 +719,10 @@ void WidgetRenderer::drawCardVolume(const WidgetLayout& layout, const WidgetMode
     const float trackLeft = iconLeft + cardOsdIconDip + 8.0f;
     const float trackRight = pill.right - round / 2.0f - cardOsdValueDip - 6.0f;
     const float half = volumeOsdTrackHeightDip / 2.0f;
-    fill(volumeFlyoutTrackColor.withAlpha(volumeFlyoutTrackColor.a * osd));
+    fill(levelTrackColor.withAlpha(levelTrackColor.a * osd));
     m_target->FillRoundedRectangle({{trackLeft, centreY - half, trackRight, centreY + half}, half, half},
                                    m_brush.get());
-    fill(volumeFlyoutFillColor.withAlpha(volumeFlyoutFillColor.a * osd));
+    fill(levelFillColor.withAlpha(levelFillColor.a * osd));
     m_target->FillRoundedRectangle(
         {{trackLeft, centreY - half, trackLeft + (trackRight - trackLeft) * level, centreY + half}, half, half},
         m_brush.get());
@@ -876,37 +880,52 @@ void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel&
     place(layout.next);
     m_target->FillGeometry(m_nextGlyph.get(), m_brush.get());
 
-    // Fluent icons live in a 20-unit box; scale it to the icon size.
+    // Fluent icons live in a 20-unit box; `share` of the icon size, placed
+    // `offset` (in icon sizes) from the zone's centred box.
     const float icon = config::controlIconSizeDip * k;
-    const auto placeIcon = [&](const RectF& zone) {
+    const auto drawIcon = [&](const RectF& zone, ID2D1Geometry* geometry, float share, D2D1_POINT_2F offset) {
         const float x = zone.left + (zone.width() - icon) / 2.0f;
         const float y = zone.top + (zone.height() - icon) / 2.0f;
-        const float scale = icon / icons::canvasUnits;
-        m_target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) * D2D1::Matrix3x2F::Translation(x, y));
-        return D2D1_POINT_2F{x + icon / 2.0f, y + icon};
+        const float scale = icon * share / icons::canvasUnits;
+        m_target->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) *
+                               D2D1::Matrix3x2F::Translation(x + offset.x * icon, y + offset.y * icon));
+        m_target->FillGeometry(geometry, m_brush.get());
+        m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    };
+    // Green with a dot underneath while on, as in Spotify. The icons stay in
+    // line with the other controls; their shapes end well above the box's
+    // bottom edge, so the dot fits just under them.
+    const auto drawDot = [&](const RectF& zone) {
+        const float r = config::controlActiveDotDip * k / 2.0f;
+        const float x = zone.left + zone.width() / 2.0f;
+        const float y = zone.top + (zone.height() + icon) / 2.0f + r - k;
+        m_target->FillEllipse(D2D1::Ellipse({x, y}, r, r), m_brush.get());
+    };
+    const auto stateColor = [](bool available, bool on) {
+        return !available ? config::controlDisabledColor : on ? config::controlActiveColor : config::controlColor;
     };
 
-    // Shuffle: green with a dot underneath while on, as in Spotify. The icon
-    // stays in line with the other controls; the arrows end well above the
-    // box's bottom edge, so the dot fits just under them.
+    // Shuffle; smart shuffle adds a sparkle, the arrows making room for it.
     const bool shuffleOn = model.shuffle.value_or(false);
-    fill(!model.shuffle ? config::controlDisabledColor : shuffleOn ? config::controlActiveColor : config::controlColor);
-    const D2D1_POINT_2F below = placeIcon(layout.shuffle);
-    m_target->FillGeometry(m_shuffleIcon.get(), m_brush.get());
+    fill(stateColor(model.shuffle.has_value(), shuffleOn));
+    if (shuffleOn && model.smartShuffle) {
+        const float arrows = config::smartShuffleArrowsShare;
+        drawIcon(layout.shuffle, m_shuffleIcon.get(), arrows, {1.0f - arrows, (1.0f - arrows) / 2.0f});
+        drawIcon(layout.shuffle, m_sparkleIcon.get(), config::smartShuffleSparkleShare, {-0.08f, -0.1f});
+    } else {
+        drawIcon(layout.shuffle, m_shuffleIcon.get(), 1.0f, {});
+    }
     if (shuffleOn) {
-        m_target->SetTransform(D2D1::Matrix3x2F::Identity());
-        const float r = config::controlActiveDotDip * k / 2.0f;
-        m_target->FillEllipse(D2D1::Ellipse({below.x, below.y + r - k}, r, r), m_brush.get());
+        drawDot(layout.shuffle);
     }
 
-    // Volume: waves follow the level, a cross when muted or at zero.
-    const float volume = model.volume.value_or(1.0f);
-    const std::size_t speaker = volume <= 0.0f ? 0 : volume < 0.34f ? 1 : volume < 0.67f ? 2 : 3;
-    fill(model.volume ? config::controlColor : config::controlDisabledColor);
-    placeIcon(layout.volume);
-    m_target->FillGeometry(m_speakerIcons[speaker].get(), m_brush.get());
-
-    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    // Repeat: off, the whole list, or one track (the icon with a 1).
+    const RepeatMode repeat = model.repeat.value_or(RepeatMode::Off);
+    fill(stateColor(model.repeat.has_value(), repeat != RepeatMode::Off));
+    drawIcon(layout.repeat, repeat == RepeatMode::One ? m_repeatOneIcon.get() : m_repeatAllIcon.get(), 1.0f, {});
+    if (repeat != RepeatMode::Off) {
+        drawDot(layout.repeat);
+    }
 }
 
 Color WidgetRenderer::barColor(const WidgetModel& model, int bar) {
@@ -962,7 +981,7 @@ void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel&
         }
         const float half = volumeOsdTrackHeightDip / 2.0f;
         const float trackY = zone.bottom - half;
-        fill(config::volumeFlyoutTrackColor.withAlpha(config::volumeFlyoutTrackColor.a * osd));
+        fill(config::levelTrackColor.withAlpha(config::levelTrackColor.a * osd));
         m_target->FillRoundedRectangle({{zone.left, trackY - half, zone.right, trackY + half}, half, half}, m_brush.get());
         fill(barColor(model, 0).withAlpha(osd));
         m_target->FillRoundedRectangle(

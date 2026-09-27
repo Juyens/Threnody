@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "color/Color.h"
 #include "color/ColorMode.h"
+#include "media/RepeatMode.h"
 
 #include "render/WidgetLayout.h"
 
@@ -22,9 +23,12 @@ struct WidgetModel {
     bool playing{false};
     bool floating{false};  // Out of the taskbar: drawn on its own opaque panel.
 
-    // Shuffle as Spotify reports it; empty while it offers no control, which
-    // draws the button dimmed.
+    // Shuffle and repeat as Spotify reports them; empty while it offers no
+    // control, which draws the button dimmed. Smart shuffle is shuffle with
+    // Spotify's recommendations mixed in; only the Web API tells them apart.
     std::optional<bool> shuffle;
+    bool smartShuffle{false};
+    std::optional<RepeatMode> repeat;
     // Spotify's volume in the Windows mixer, 0 when muted; empty when it has
     // no audio session.
     std::optional<float> volume;

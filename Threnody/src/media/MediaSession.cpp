@@ -7,6 +7,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.Control.h>
+#include <winrt/Windows.Media.h>
 #include <winrt/Windows.Storage.Streams.h>
 
 #include <chrono>
@@ -83,12 +84,24 @@ void refreshPlayback(const std::shared_ptr<Shared>& shared) {
                 shuffle = active.Value();
             }
         }
+        std::optional<RepeatMode> repeat;
+        if (info.Controls().IsRepeatEnabled()) {
+            if (const auto mode = info.AutoRepeatMode()) {
+                switch (mode.Value()) {
+                    case winrt::Windows::Media::MediaPlaybackAutoRepeatMode::None: repeat = RepeatMode::Off; break;
+                    case winrt::Windows::Media::MediaPlaybackAutoRepeatMode::List: repeat = RepeatMode::All; break;
+                    case winrt::Windows::Media::MediaPlaybackAutoRepeatMode::Track: repeat = RepeatMode::One; break;
+                }
+            }
+        }
         bool changed = false;
         {
             std::scoped_lock lock{shared->mutex};
-            changed = shared->state.playing != playing || shared->state.shuffle != shuffle;
+            changed = shared->state.playing != playing || shared->state.shuffle != shuffle ||
+                      shared->state.repeat != repeat;
             shared->state.playing = playing;
             shared->state.shuffle = shuffle;
+            shared->state.repeat = repeat;
         }
         if (changed) {
             shared->notify();
@@ -336,6 +349,20 @@ winrt::fire_and_forget sendShuffle(GlobalSystemMediaTransportControlsSession ses
     }
 }
 
+winrt::fire_and_forget sendRepeat(GlobalSystemMediaTransportControlsSession session, RepeatMode mode) {
+    using winrt::Windows::Media::MediaPlaybackAutoRepeatMode;
+    const MediaPlaybackAutoRepeatMode target = mode == RepeatMode::One   ? MediaPlaybackAutoRepeatMode::Track
+                                               : mode == RepeatMode::All ? MediaPlaybackAutoRepeatMode::List
+                                                                         : MediaPlaybackAutoRepeatMode::None;
+    try {
+        const bool accepted = co_await session.TryChangeAutoRepeatModeAsync(target);
+        log::info("SMTC repeat {} {}", mode == RepeatMode::One ? "one" : mode == RepeatMode::All ? "all" : "off",
+                  accepted ? "accepted" : "rejected");
+    } catch (const winrt::hresult_error& e) {
+        log::warn("SMTC repeat failed: {}", describe(e));
+    }
+}
+
 }  // namespace
 
 MediaSession::MediaSession(ChangeHandler onChanged) : m_shared(std::make_shared<Shared>()) {
@@ -394,6 +421,17 @@ void MediaSession::setShuffle(bool active) const {
     }
     if (session) {
         sendShuffle(session, active);
+    }
+}
+
+void MediaSession::setRepeat(RepeatMode mode) const {
+    GlobalSystemMediaTransportControlsSession session{nullptr};
+    {
+        std::scoped_lock lock{m_shared->mutex};
+        session = m_shared->session;
+    }
+    if (session) {
+        sendRepeat(session, mode);
     }
 }
 

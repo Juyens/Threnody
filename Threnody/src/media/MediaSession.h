@@ -1,5 +1,7 @@
 #pragma once
 
+#include "media/RepeatMode.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -18,6 +20,7 @@ struct NowPlaying {
     std::wstring artist;
     bool playing{false};
     std::optional<bool> shuffle;      // Empty when the session offers no shuffle control.
+    std::optional<RepeatMode> repeat;  // Likewise for repeat.
     std::vector<std::uint8_t> cover;  // Encoded image bytes, empty if none.
     std::uint32_t coverVersion{};     // Bumps whenever `cover` changes.
     bool coverPending{false};         // Text belongs to a new track; `cover` is still the old one.
@@ -41,6 +44,7 @@ public:
     [[nodiscard]] NowPlaying snapshot() const;
     void send(TransportCommand command) const;
     void setShuffle(bool active) const;
+    void setRepeat(RepeatMode mode) const;
 
     // Safety net for the event path, meant for a slow timer: re-checks which
     // session object Spotify exposes, and re-reads playback state and text
