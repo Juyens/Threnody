@@ -53,7 +53,9 @@ its slot shows where it will dock; let go there and it is embedded again.
 
 While it floats, pull any edge or corner: pulled taller it snaps into a **player card** of one
 standard size, the cover filling its width, the text and controls below, all over a blur of the
-artwork. Pulled shorter it snaps straight back to the bar.
+artwork. Pulled shorter it snaps straight back to the bar. In **vinyl mode** (on by default, in
+the settings) the card's cover is the label of a record that turns while the music plays, and a
+tonearm lowers onto the grooves, tracks inward as the song goes on, and lifts off on pause.
 
 ## The spectrum is real
 

@@ -229,6 +229,7 @@ void testSettingsRoundTrip() {
     original.lockKeys.numLock = false;
     original.colorMode = ColorMode::Rainbow;
     original.beatPulse = false;
+    original.vinylCard = false;
     original.floating = true;
     original.floatingX = -1200;
     original.floatingY = 340;

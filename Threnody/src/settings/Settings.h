@@ -28,6 +28,7 @@ struct Settings {
     LockKeyOverlay lockKeys;
     ColorMode colorMode{ColorMode::Track};
     bool beatPulse{true};  // The border glows on kicks.
+    bool vinylCard{true};  // The card's cover spins like a record.
 
     // Dragged out of the taskbar: floats with its top-left corner here, in
     // screen pixels.

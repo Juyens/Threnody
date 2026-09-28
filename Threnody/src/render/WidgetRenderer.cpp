@@ -743,6 +743,12 @@ void WidgetRenderer::drawHoverHighlight(const WidgetLayout& layout, const Widget
 }
 
 void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& model) {
+    if (layout.card && model.vinyl) {
+        drawVinyl(layout, model);
+        return;
+    }
+    m_vinylLast = {};  // The record picks up where it was, without a jump.
+
     const D2D1_ROUNDED_RECT shape{
         .rect = toD2D(layout.cover),
         .radiusX = layout.coverCornerRadius,
@@ -764,6 +770,203 @@ void WidgetRenderer::drawCover(const WidgetLayout& layout, const WidgetModel& mo
     m_target->SetTransform(D2D1::Matrix3x2F::Scale(std::max(std::abs(squeeze), 0.001f), 1.0f, centre));
     drawCoverFace(squeeze > 0.0f ? m_coverFrom : m_cover, shape);
     m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
+// Steps the record and the tonearm by the time since the last frame. The
+// platter's speed ramps linearly, as a motor's does; a long gap between
+// frames (the card was hidden) counts as a short one.
+void WidgetRenderer::advanceVinyl(const WidgetModel& model) {
+    const auto now = std::chrono::steady_clock::now();
+    const float dt = m_vinylLast == std::chrono::steady_clock::time_point{}
+                         ? 0.0f
+                         : std::min(std::chrono::duration<float>(now - m_vinylLast).count(), 0.1f);
+    m_vinylLast = now;
+    const auto approach = [dt](float value, float target, float upSeconds, float downSeconds) {
+        return target > value ? std::min(target, value + dt / upSeconds) : std::max(target, value - dt / downSeconds);
+    };
+    const float target = model.playing ? 1.0f : 0.0f;
+    m_vinylSpeed = approach(m_vinylSpeed, target, config::vinylSpinUpSeconds, config::vinylSpinDownSeconds);
+    m_vinylArm = approach(m_vinylArm, target, config::vinylArmSeconds, config::vinylArmSeconds);
+    m_vinylAngle = std::fmod(m_vinylAngle + m_vinylSpeed * config::vinylRpm * 6.0f * dt, 360.0f);  // rpm * 360 / 60
+}
+
+bool WidgetRenderer::vinylMoving(const WidgetModel& model, const WidgetLayout& layout) const noexcept {
+    return layout.card && model.vinyl && (model.playing || m_vinylSpeed > 0.0f || m_vinylArm > 0.0f);
+}
+
+// Two soft highlights on opposite sides of the record, each a stack of
+// wedges narrowing toward its middle so the light fades at the edges.
+void WidgetRenderer::ensureVinylSheen(float radius) {
+    if (!m_vinylSheen.empty() && m_vinylSheenRadius == radius) {
+        return;
+    }
+    m_vinylSheen.clear();
+    m_vinylSheenRadius = radius;
+    const auto at = [radius](float degrees) {
+        const float a = degrees * std::numbers::pi_v<float> / 180.0f;
+        return D2D1::Point2F(radius * std::cos(a), radius * std::sin(a));
+    };
+    for (const float middle : {-135.0f, 45.0f}) {
+        for (const float half : {30.0f, 23.0f, 16.0f, 10.0f, 5.0f}) {
+            winrt::com_ptr<ID2D1PathGeometry> wedge;
+            winrt::com_ptr<ID2D1GeometrySink> sink;
+            if (FAILED(m_graphics.d2d->CreatePathGeometry(wedge.put())) || FAILED(wedge->Open(sink.put()))) {
+                continue;
+            }
+            sink->BeginFigure({0.0f, 0.0f}, D2D1_FIGURE_BEGIN_FILLED);
+            sink->AddLine(at(middle - half));
+            sink->AddArc(D2D1::ArcSegment(at(middle + half), D2D1::SizeF(radius, radius), 0.0f,
+                                          D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            if (SUCCEEDED(sink->Close())) {
+                m_vinylSheen.push_back(std::move(wedge));
+            }
+        }
+    }
+}
+
+// The card's cover as a record: a black disc with grooves and fixed
+// highlights, the cover turning on it as the label, and the tonearm.
+void WidgetRenderer::drawVinyl(const WidgetLayout& layout, const WidgetModel& model) {
+    using namespace config;
+    advanceVinyl(model);
+    const RectF& area = layout.cover;
+    const D2D1_POINT_2F centre{(area.left + area.right) / 2.0f, (area.top + area.bottom) / 2.0f};
+    const float radius = std::min(area.width(), area.height()) / 2.0f;
+    const float labelRadius = radius * vinylLabelShare;
+
+    // A soft shadow under the record, then the vinyl.
+    fill(vinylShadowColor);
+    for (const float grow : {4.5f, 3.0f, 1.5f}) {
+        m_target->FillEllipse({{centre.x, centre.y + 1.5f}, radius + grow, radius + grow}, m_brush.get());
+    }
+    const D2D1_GRADIENT_STOP stops[] = {{0.0f, toD2D(vinylDiscInnerColor)}, {1.0f, toD2D(vinylDiscOuterColor)}};
+    winrt::com_ptr<ID2D1GradientStopCollection> collection;
+    winrt::com_ptr<ID2D1RadialGradientBrush> disc;
+    if (SUCCEEDED(m_target->CreateGradientStopCollection(stops, 2, collection.put())) &&
+        SUCCEEDED(m_target->CreateRadialGradientBrush(
+            D2D1::RadialGradientBrushProperties(centre, {0.0f, 0.0f}, radius, radius), collection.get(), disc.put()))) {
+        m_target->FillEllipse({centre, radius, radius}, disc.get());
+    } else {
+        fill(vinylDiscOuterColor);
+        m_target->FillEllipse({centre, radius, radius}, m_brush.get());
+    }
+
+    // Grooves, a few wider gaps between "tracks", and the rim.
+    fill(vinylGrooveColor);
+    for (float r = labelRadius + vinylGrooveSpacingDip * 2.0f; r < radius - vinylGrooveSpacingDip;
+         r += vinylGrooveSpacingDip) {
+        m_target->DrawEllipse({centre, r, r}, m_brush.get(), 0.6f);
+    }
+    fill(vinylTrackGapColor);
+    for (const float share : {0.3f, 0.55f, 0.78f}) {
+        const float r = labelRadius + (radius - labelRadius) * share;
+        m_target->DrawEllipse({centre, r, r}, m_brush.get(), 1.2f);
+    }
+    fill(vinylRimColor);
+    m_target->DrawEllipse({centre, radius - 0.5f, radius - 0.5f}, m_brush.get(), 1.0f);
+
+    // The highlights brighten a little with the beat.
+    ensureVinylSheen(radius);
+    fill(vinylSheenColor.withAlpha(vinylSheenColor.a * (1.0f + 0.8f * std::clamp(model.pulse, 0.0f, 1.0f))));
+    m_target->SetTransform(D2D1::Matrix3x2F::Translation(centre.x, centre.y));
+    for (const winrt::com_ptr<ID2D1PathGeometry>& wedge : m_vinylSheen) {
+        m_target->FillGeometry(wedge.get(), m_brush.get());
+    }
+
+    // The label turns with the record; a new cover flips over on it.
+    const RectF label{centre.x - labelRadius, centre.y - labelRadius, centre.x + labelRadius, centre.y + labelRadius};
+    static_cast<void>(ensureCover(model, label));
+    const float turn = easeInOutCubic(progress(m_coverFlipStart, coverFlipMs));
+    const float squeeze = turn >= 1.0f ? 1.0f : std::cos(turn * std::numbers::pi_v<float>);
+    m_target->SetTransform(D2D1::Matrix3x2F::Rotation(m_vinylAngle, centre) *
+                           D2D1::Matrix3x2F::Scale(std::max(std::abs(squeeze), 0.001f), 1.0f, centre));
+    drawVinylLabel(turn < 1.0f && squeeze > 0.0f ? m_coverFrom : m_cover, centre, labelRadius);
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    fill(Color{0.0f, 0.0f, 0.0f, 0.35f});
+    m_target->DrawEllipse({centre, labelRadius, labelRadius}, m_brush.get(), 1.5f);
+    fill(vinylDiscOuterColor);
+    m_target->FillEllipse({centre, vinylHoleDip, vinylHoleDip}, m_brush.get());
+    fill(vinylRimColor);
+    m_target->DrawEllipse({centre, vinylHoleDip, vinylHoleDip}, m_brush.get(), 0.8f);
+
+    drawTonearm(layout, model, centre, radius, labelRadius);
+}
+
+// The cover cropped to a circle, through a bitmap brush so it follows the
+// target's transform (the turn and the flip).
+void WidgetRenderer::drawVinylLabel(std::optional<Cover>& face, D2D1_POINT_2F centre, float radius) {
+    const D2D1_ELLIPSE shape{centre, radius, radius};
+    if (face && face->bitmap && !face->brush) {
+        const D2D1_BITMAP_BRUSH_PROPERTIES properties{D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP,
+                                                      D2D1_BITMAP_INTERPOLATION_MODE_LINEAR};
+        static_cast<void>(m_target->CreateBitmapBrush(face->bitmap.get(), properties, face->brush.put()));
+    }
+    if (!face || !face->brush) {
+        fill(config::coverPlaceholderColor);
+        m_target->FillEllipse(shape, m_brush.get());
+        return;
+    }
+    const float side = std::max(face->source.right - face->source.left, 1.0f);
+    const float scale = 2.0f * radius / side;
+    face->brush->SetTransform(D2D1::Matrix3x2F::Translation(-face->source.left, -face->source.top) *
+                              D2D1::Matrix3x2F::Scale(scale, scale) *
+                              D2D1::Matrix3x2F::Translation(centre.x - radius, centre.y - radius));
+    m_target->FillEllipse(shape, face->brush.get());
+}
+
+// The tonearm pivots in the cover square's top-right corner. Lowered, its
+// needle sits on the outer grooves at the start of a song and on the inner
+// ones at the end; lifted, it swings out past the rim and its shadow drifts
+// further off.
+void WidgetRenderer::drawTonearm(const WidgetLayout& layout, const WidgetModel& model, D2D1_POINT_2F centre,
+                                 float radius, float labelRadius) {
+    using namespace config;
+    constexpr float pi = std::numbers::pi_v<float>;
+    const D2D1_POINT_2F pivot{layout.cover.right - vinylArmPivotInsetDip, layout.cover.top + vinylArmPivotInsetDip};
+    const float length = radius * vinylArmLengthShare;
+    const float distance = std::hypot(centre.x - pivot.x, centre.y - pivot.y);
+    const float toCentre = std::atan2(centre.y - pivot.y, centre.x - pivot.x);
+    // The arm's angle that puts the needle `tip` from the record's centre,
+    // on the side nearer the rim (law of cosines).
+    const auto angleFor = [&](float tip) {
+        const float cosine = (length * length + distance * distance - tip * tip) / (2.0f * length * distance);
+        return toCentre - std::acos(std::clamp(cosine, -1.0f, 1.0f));
+    };
+    const float outer = radius * vinylArmOuterShare;
+    const float inner = labelRadius + (radius - labelRadius) * vinylArmInnerShare;
+    const float played = std::clamp(model.progress, 0.0f, 1.0f);
+    const float down = angleFor(outer + (inner - outer) * played);
+    const float rest = angleFor(outer) - vinylArmRestDeg * pi / 180.0f;
+    const float lowered = easeInOutCubic(m_vinylArm);
+    const float degrees = (rest + (down - rest) * lowered) * 180.0f / pi;
+
+    const auto arm = [&](D2D1_POINT_2F at, const Color* shadow) {
+        m_target->SetTransform(D2D1::Matrix3x2F::Rotation(degrees) * D2D1::Matrix3x2F::Translation(at.x, at.y));
+        fill(shadow ? *shadow : vinylArmDarkColor);
+        m_target->FillRoundedRectangle({{-15.0f, -5.5f, -5.0f, 5.5f}, 2.5f, 2.5f}, m_brush.get());  // Counterweight.
+        fill(shadow ? *shadow : vinylArmColor);
+        m_target->DrawLine({0.0f, 0.0f}, {length - 12.0f, 0.0f}, m_brush.get(), 3.0f, m_iconStroke.get());
+        m_target->FillRoundedRectangle({{length - 15.0f, -4.5f, length + 1.0f, 4.5f}, 2.0f, 2.0f},
+                                       m_brush.get());  // Headshell...
+        fill(shadow ? *shadow : vinylArmDarkColor);
+        m_target->FillRoundedRectangle({{length - 9.0f, -2.5f, length - 1.0f, 2.5f}, 1.0f, 1.0f},
+                                       m_brush.get());  // ...and cartridge.
+    };
+    const float drift = 1.5f + 2.5f * (1.0f - lowered);
+    arm({pivot.x + drift, pivot.y + drift + 1.0f}, &vinylArmShadowColor);
+
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    fill(vinylArmBaseColor);
+    m_target->FillEllipse({pivot, 10.0f, 10.0f}, m_brush.get());
+    fill(vinylRimColor);
+    m_target->DrawEllipse({pivot, 10.0f, 10.0f}, m_brush.get(), 1.0f);
+
+    arm(pivot, nullptr);
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    fill(vinylArmColor);
+    m_target->FillEllipse({pivot, 4.0f, 4.0f}, m_brush.get());
 }
 
 // The card's volume indicator: a capsule over the bottom of the cover with
@@ -925,7 +1128,7 @@ bool WidgetRenderer::animating(const WidgetModel& model, const WidgetLayout& lay
     if (progress(m_coverFlipStart, config::coverFlipMs) < 1.0f ||
         progress(m_textSlideStart, config::textSlideMs) < 1.0f ||
         (model.floating && progress(m_backdropFadeStart, config::coverFlipMs) < 1.0f) ||
-        volumeOsdOpacity(model) > 0.0f) {
+        volumeOsdOpacity(model) > 0.0f || vinylMoving(model, layout)) {
         return true;
     }
     return model.hover && (marqueeOffset(m_title, m_titleNatural, layout.title.width()) >= 0.0f ||

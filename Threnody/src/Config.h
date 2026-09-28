@@ -119,6 +119,35 @@ inline constexpr float cardControlMaxWidthDip = 56.0f;
 inline constexpr float cardControlScale = 1.5f;  // Icons, relative to the bar's.
 inline constexpr float resizeEdgeDip = 7.0f;
 
+// Vinyl mode (card only, optional): the cover becomes the label of a record
+// that turns at 33 1/3 rpm while playing, speeding up and running down like
+// a platter, under a tonearm that lowers onto the grooves when the music
+// starts, tracks inward as the song plays, and lifts off on pause. The
+// highlights on the vinyl stay put while it turns, as they do on a real one.
+inline constexpr float vinylRpm = 100.0f / 3.0f;
+inline constexpr float vinylSpinUpSeconds = 0.6f;
+inline constexpr float vinylSpinDownSeconds = 1.4f;
+inline constexpr float vinylArmSeconds = 0.5f;
+inline constexpr float vinylLabelShare = 0.68f;       // Label radius over the record's.
+inline constexpr float vinylGrooveSpacingDip = 2.5f;
+inline constexpr float vinylHoleDip = 4.0f;
+inline constexpr float vinylArmPivotInsetDip = 16.0f;  // From the cover square's top-right corner.
+inline constexpr float vinylArmLengthShare = 0.9f;     // Of the record's radius.
+inline constexpr float vinylArmOuterShare = 0.92f;     // Needle at the start of a song, of the radius...
+inline constexpr float vinylArmInnerShare = 0.15f;     // ...and at its end, of the grooves' width past the label.
+inline constexpr float vinylArmRestDeg = 9.0f;         // Swung out past the rim when lifted.
+inline constexpr Color vinylDiscInnerColor{0.10f, 0.10f, 0.11f, 1.0f};
+inline constexpr Color vinylDiscOuterColor{0.04f, 0.04f, 0.045f, 1.0f};
+inline constexpr Color vinylGrooveColor{1.0f, 1.0f, 1.0f, 0.045f};
+inline constexpr Color vinylTrackGapColor{1.0f, 1.0f, 1.0f, 0.08f};
+inline constexpr Color vinylRimColor{1.0f, 1.0f, 1.0f, 0.10f};
+inline constexpr Color vinylSheenColor{1.0f, 1.0f, 1.0f, 0.035f};  // Per layer of the highlight.
+inline constexpr Color vinylShadowColor{0.0f, 0.0f, 0.0f, 0.09f};  // Per ring of the record's shadow.
+inline constexpr Color vinylArmColor{0.84f, 0.84f, 0.86f, 1.0f};
+inline constexpr Color vinylArmDarkColor{0.42f, 0.42f, 0.45f, 1.0f};
+inline constexpr Color vinylArmBaseColor{0.17f, 0.17f, 0.19f, 1.0f};
+inline constexpr Color vinylArmShadowColor{0.0f, 0.0f, 0.0f, 0.35f};
+
 // Floating widget backdrop: a wash of the cover's colours, like the blurred
 // artwork behind Apple Music's player. A band across the middle of the
 // cover (taller than the panel's own proportion, so there is more colour to
@@ -311,7 +340,7 @@ inline constexpr float smartShuffleSparkleShare = 0.48f;
 
 // Settings window (Dear ImGui), client area in DIPs.
 inline constexpr int settingsWindowWidthDip = 460;
-inline constexpr int settingsWindowHeightDip = 772;
+inline constexpr int settingsWindowHeightDip = 804;
 inline constexpr int settingsLogPanelWidthDip = 640;  // Added to the right when the live log is shown.
 inline constexpr wchar_t settingsMonoFontFile[] = L"CascadiaMono.ttf";
 inline constexpr wchar_t settingsMonoFontFallback[] = L"consola.ttf";

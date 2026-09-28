@@ -22,6 +22,7 @@ struct WidgetModel {
     std::wstring artist;
     bool playing{false};
     bool floating{false};  // Out of the taskbar: drawn on its own opaque panel.
+    bool vinyl{false};     // On the card, the cover is the label of a spinning record.
 
     // Shuffle and repeat as Spotify reports them; empty while it offers no
     // control, which draws the button dimmed. Smart shuffle is shuffle with

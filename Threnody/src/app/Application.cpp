@@ -115,6 +115,7 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     m_model.artist = strings().placeholderArtist.wide;
     m_model.colorMode = m_settings.colorMode;
     m_model.floating = m_settings.floating;
+    m_model.vinyl = m_settings.vinylCard;
 
     if (Result<std::unique_ptr<overlay::LockKeyOverlay>> lockOverlay = overlay::LockKeyOverlay::create(instance);
         lockOverlay) {
@@ -1429,6 +1430,11 @@ void Application::applySettings(const settings::Settings& updated) {
     }
     if (previous.language != updated.language) {
         applyLanguage();
+    }
+    if (previous.vinylCard != updated.vinylCard) {
+        log::info("vinyl card: {}", updated.vinylCard ? "on" : "off");
+        m_model.vinyl = updated.vinylCard;
+        repaintWidget();
     }
     if (previous.beatPulse != updated.beatPulse) {
         log::info("beat pulse: {}", updated.beatPulse ? "on" : "off");

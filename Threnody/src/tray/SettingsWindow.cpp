@@ -455,6 +455,9 @@ void SettingsWindow::drawSettingsColumn() {
     if (ImGui::Checkbox(S.beatPulse.utf8, &m_settings.beatPulse)) {
         changed();
     }
+    if (ImGui::Checkbox(S.vinylCard.utf8, &m_settings.vinylCard)) {
+        changed();
+    }
     ImGui::Dummy(ImVec2{0, 2});
     ImGui::Separator();
     ImGui::Dummy(ImVec2{0, 2});

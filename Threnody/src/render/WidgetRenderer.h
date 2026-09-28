@@ -8,6 +8,7 @@
 #include "util/Result.h"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -56,6 +57,7 @@ private:
         int sizePx{};
         winrt::com_ptr<ID2D1Bitmap> bitmap;
         D2D1_RECT_F source{};
+        winrt::com_ptr<ID2D1BitmapBrush> brush;  // For the vinyl label; made on first use.
     };
 
     // The floating widget's backdrop: the cover blurred to the widget's size
@@ -94,6 +96,13 @@ private:
     void drawSeekTime(const WidgetLayout& layout, const WidgetModel& model);
     void drawCover(const WidgetLayout& layout, const WidgetModel& model);
     void drawCoverFace(const std::optional<Cover>& face, const D2D1_ROUNDED_RECT& shape);
+    void drawVinyl(const WidgetLayout& layout, const WidgetModel& model);
+    void drawVinylLabel(std::optional<Cover>& face, D2D1_POINT_2F centre, float radius);
+    void drawTonearm(const WidgetLayout& layout, const WidgetModel& model, D2D1_POINT_2F centre, float radius,
+                     float labelRadius);
+    void advanceVinyl(const WidgetModel& model);
+    void ensureVinylSheen(float radius);
+    [[nodiscard]] bool vinylMoving(const WidgetModel& model, const WidgetLayout& layout) const noexcept;
     void drawCardVolume(const WidgetLayout& layout, const WidgetModel& model);
     void drawText(const WidgetLayout& layout);
     void drawTextLine(const TextLine& line, const winrt::com_ptr<IDWriteTextLayout>& natural, const RectF& box,
@@ -145,6 +154,16 @@ private:
     std::optional<Backdrop> m_backdrop;
     std::optional<Backdrop> m_backdropFrom;
     ULONGLONG m_backdropFadeStart{};
+
+    // Vinyl mode: the record's turn in degrees, its speed and the tonearm's
+    // descent in [0, 1], stepped by real time between frames.
+    float m_vinylAngle{};
+    float m_vinylSpeed{};
+    float m_vinylArm{};
+    std::chrono::steady_clock::time_point m_vinylLast{};
+    // The fixed highlights, as wedges around the origin for m_vinylSheenRadius.
+    std::vector<winrt::com_ptr<ID2D1PathGeometry>> m_vinylSheen;
+    float m_vinylSheenRadius{};
 };
 
 }  // namespace threnody::render

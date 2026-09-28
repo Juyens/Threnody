@@ -51,6 +51,7 @@ struct Strings {
     Text modeRainbow;
     Text modeGradient;
     Text beatPulse;
+    Text vinylCard;
     Text sectionSpotify;
     Text spotifyExplanation;
     Text spotifyConnected;
@@ -106,6 +107,8 @@ inline constexpr Strings spanish{
     .modeGradient = {L"Degradado de la canción", "Degradado de la canción"},
     .beatPulse = {L"Pulso con el ritmo (el borde brilla con los golpes)",
                   "Pulso con el ritmo (el borde brilla con los golpes)"},
+    .vinylCard = {L"Modo vinilo en la tarjeta (la portada gira como un disco)",
+                  "Modo vinilo en la tarjeta (la portada gira como un disco)"},
     .sectionSpotify = {L"SPOTIFY", "SPOTIFY"},
     .spotifyExplanation = {L"", "Sin conexión, el título y el artista abren una búsqueda en Spotify. Conectado, abren la canción y el artista exactos."},
     .spotifyConnected = {L"Estado: conectado", "Estado: conectado"},
@@ -158,6 +161,8 @@ inline constexpr Strings english{
     .modeRainbow = {L"Rainbow", "Rainbow"},
     .modeGradient = {L"Track gradient", "Track gradient"},
     .beatPulse = {L"Beat pulse (the border glows on kicks)", "Beat pulse (the border glows on kicks)"},
+    .vinylCard = {L"Vinyl mode on the card (the cover spins like a record)",
+                  "Vinyl mode on the card (the cover spins like a record)"},
     .sectionSpotify = {L"SPOTIFY", "SPOTIFY"},
     .spotifyExplanation = {L"", "Without a connection, the title and artist open a Spotify search. Connected, they open the exact track and artist."},
     .spotifyConnected = {L"Status: connected", "Status: connected"},
