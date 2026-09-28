@@ -54,6 +54,11 @@ public:
     void onDragStart(ClickHandler handler) { m_onDragStart = std::move(handler); }
     // Fired when the button goes down on an edge of the floating widget.
     void onResizeStart(std::function<void(UINT edges)> handler) { m_onResizeStart = std::move(handler); }
+    // Asked when the button goes down elsewhere: returning true makes the
+    // press a scrub instead of a click or a drag, reported to onScrub on
+    // every move and once more, with `done`, when the button comes up.
+    void onPress(std::function<bool(POINT position)> handler) { m_onPress = std::move(handler); }
+    void onScrub(std::function<void(POINT position, bool done)> handler) { m_onScrub = std::move(handler); }
 
     [[nodiscard]] HWND hwnd() const noexcept { return m_hwnd.get(); }
 
@@ -70,6 +75,10 @@ private:
     std::function<void()> m_onPointerLeave;
     ClickHandler m_onDragStart;
     std::function<void(UINT edges)> m_onResizeStart;
+    std::function<bool(POINT position)> m_onPress;
+    std::function<void(POINT position, bool done)> m_onScrub;
+    bool m_scrubbing{false};
+    POINT m_lastScrub{};
     bool m_hovering{false};
     bool m_floating{false};
     std::optional<POINT> m_press;  // Button down, no drag yet.

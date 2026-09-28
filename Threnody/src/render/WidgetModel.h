@@ -55,8 +55,13 @@ struct WidgetModel {
     // Beat glow in [0, 1]: jumps to 1 on a kick in the bass, then fades.
     float pulse{};
 
-    // How far the track has played, in [0, 1]; negative when unknown.
+    // How far the track has played, in [0, 1]; negative when unknown. While
+    // the line is pointed at or dragged, `seekPreview` is the point under the
+    // pointer (shown as a time), and during a drag `progress` follows it.
     float progress{-1.0f};
+    std::optional<float> seekPreview;
+    bool seeking{false};
+    std::int64_t durationMs{};
 
     // Pointer feedback: the zone under the pointer, and how far the whole
     // widget has faded toward its hovered look (0 = idle, 1 = hovered).

@@ -3,6 +3,10 @@
 namespace threnody::interaction {
 
 Zone hitTest(const render::WidgetLayout& layout, float x, float y) noexcept {
+    // The seek strip runs under everything along the bottom edge.
+    if (layout.progress.contains(x, y)) {
+        return Zone::Progress;
+    }
     if (layout.cover.contains(x, y)) {
         return Zone::Cover;
     }

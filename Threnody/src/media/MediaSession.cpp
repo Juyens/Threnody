@@ -391,6 +391,15 @@ winrt::fire_and_forget sendRepeat(GlobalSystemMediaTransportControlsSession sess
     }
 }
 
+winrt::fire_and_forget sendSeek(GlobalSystemMediaTransportControlsSession session, std::int64_t positionMs) {
+    try {
+        const bool accepted = co_await session.TryChangePlaybackPositionAsync(positionMs * 10000);  // 100 ns ticks.
+        log::info("SMTC seek to {} ms {}", positionMs, accepted ? "accepted" : "rejected");
+    } catch (const winrt::hresult_error& e) {
+        log::warn("SMTC seek failed: {}", describe(e));
+    }
+}
+
 }  // namespace
 
 MediaSession::MediaSession(ChangeHandler onChanged) : m_shared(std::make_shared<Shared>()) {
@@ -461,6 +470,17 @@ void MediaSession::setRepeat(RepeatMode mode) const {
     }
     if (session) {
         sendRepeat(session, mode);
+    }
+}
+
+void MediaSession::seek(std::int64_t positionMs) const {
+    GlobalSystemMediaTransportControlsSession session{nullptr};
+    {
+        std::scoped_lock lock{m_shared->mutex};
+        session = m_shared->session;
+    }
+    if (session) {
+        sendSeek(session, positionMs);
     }
 }
 

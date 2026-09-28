@@ -190,6 +190,13 @@ inline constexpr Color separatorColor{1.0f, 1.0f, 1.0f, 0.12f};
 // beat glow along the border nor the hover brightening shows through it and
 // blurs where the progress ends.
 inline constexpr float progressHeightDip = 2.0f;
+// Seeking: the bottom progressHitDip of the widget belong to the line.
+// Pointed at, it thickens, shows a knob at the position, and the time under
+// the pointer takes the visualiser's place (below the controls on the card);
+// a click or a drag along it moves the song there.
+inline constexpr float progressHitDip = 6.0f;
+inline constexpr float progressActiveHeightDip = 4.0f;
+inline constexpr float progressKnobRadiusDip = 4.5f;
 inline constexpr Color progressBaseColor{0.0f, 0.0f, 0.0f, 0.55f};
 inline constexpr Color progressTrackColor{1.0f, 1.0f, 1.0f, 0.12f};
 inline constexpr Color controlActiveColor{0.118f, 0.843f, 0.376f, 1.0f};  // Spotify green, #1ED760.

@@ -147,6 +147,7 @@ add_executable(ThrenodyTests
     "src/util/Log.cpp"
     "src/util/Result.cpp"
     "src/util/Text.cpp"
+    "src/interaction/HitTest.cpp"
 )
 target_include_directories(ThrenodyTests PRIVATE "src")
 target_compile_features(ThrenodyTests PRIVATE cxx_std_20)

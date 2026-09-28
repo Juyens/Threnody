@@ -52,6 +52,7 @@ public:
     void send(TransportCommand command) const;
     void setShuffle(bool active) const;
     void setRepeat(RepeatMode mode) const;
+    void seek(std::int64_t positionMs) const;
 
     // Safety net for the event path, meant for a slow timer: re-checks which
     // session object Spotify exposes, and re-reads playback state and text

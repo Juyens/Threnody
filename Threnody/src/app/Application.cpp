@@ -131,6 +131,27 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     m_widget.onDragStart([messageWindow](POINT grab) {
         PostMessageW(messageWindow, WM_THRENODY_DRAG, static_cast<WPARAM>(grab.x), static_cast<LPARAM>(grab.y));
     });
+    // Pressing the progress line scrubs it; the song moves on release.
+    m_widget.onPress([this](POINT position) {
+        if (!m_layout || m_model.progress < 0.0f) {
+            return false;
+        }
+        const float x = pixelsToDip(position.x, m_widgetDpi);
+        const float y = pixelsToDip(position.y, m_widgetDpi);
+        return interaction::hitTest(m_widgetLayout, x, y) == interaction::Zone::Progress;
+    });
+    m_widget.onScrub([this](POINT position, bool done) {
+        const float fraction = seekFraction(position);
+        if (done) {
+            m_model.seeking = false;
+            m_model.seekPreview.reset();
+            seekTo(fraction);
+            return;
+        }
+        m_model.seeking = true;
+        m_model.seekPreview = fraction;
+        repaintWidget();
+    });
     m_widget.onResizeStart([messageWindow](UINT edges) {
         PostMessageW(messageWindow, WM_THRENODY_RESIZE, static_cast<WPARAM>(edges), 0);
     });
@@ -674,7 +695,9 @@ void Application::repaintWidget() {
     if (!m_renderer || !m_layout) {
         return;
     }
-    m_model.progress = currentProgress();
+    m_model.durationMs = m_durationMs;
+    // While scrubbing the line follows the pointer, not the song.
+    m_model.progress = m_model.seeking && m_model.seekPreview ? *m_model.seekPreview : currentProgress();
 
     const SIZE size{.cx = win32::width(m_widgetRect), .cy = win32::height(m_widgetRect)};
     if (const Result<void> resized = m_surface.resize(size); !resized) {
@@ -890,6 +913,11 @@ void Application::onWidgetClick(POINT position) {
         case interaction::Zone::Repeat:
             cycleRepeat();
             break;
+        case interaction::Zone::Progress:
+            if (m_model.progress >= 0.0f) {
+                seekTo(seekFraction(position));
+            }
+            break;
         case interaction::Zone::Visualizer:
             toggleColorMode();
             break;
@@ -1096,6 +1124,27 @@ float Application::currentProgress() const {
     return std::clamp(static_cast<float>(position) / static_cast<float>(m_durationMs), 0.0f, 1.0f);
 }
 
+// Where along the widget's width `position` is, as a share of the song.
+float Application::seekFraction(POINT position) const {
+    const float width = m_widgetLayout.width > 0.0f ? m_widgetLayout.width : 1.0f;
+    return std::clamp(pixelsToDip(position.x, m_widgetDpi) / width, 0.0f, 1.0f);
+}
+
+// Moves the song there, and the line with it at once: SMTC's next timeline
+// report confirms it a moment later.
+void Application::seekTo(float fraction) {
+    if (m_durationMs <= 0 || !m_media) {
+        return;
+    }
+    const auto target = static_cast<std::int64_t>(static_cast<double>(m_durationMs) * fraction);
+    m_media->seek(target);
+    m_positionMs = target;
+    m_positionAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+    repaintWidget();
+}
+
 void Application::refreshVolume() {
     m_volume.refresh();
     showVolume(m_volume.read());
@@ -1139,8 +1188,14 @@ void Application::onPointerMove(POINT position) {
     }
     const std::optional<render::Zone> zone = interaction::hitTest(
         m_widgetLayout, pixelsToDip(position.x, m_widgetDpi), pixelsToDip(position.y, m_widgetDpi));
-    if (zone != m_model.hover) {
+    const std::optional<float> preview =
+        zone == render::Zone::Progress && m_model.progress >= 0.0f ? std::optional<float>{seekFraction(position)}
+                                                                  : std::nullopt;
+    if (zone != m_model.hover || (!m_model.seeking && preview != m_model.seekPreview)) {
         m_model.hover = zone;
+        if (!m_model.seeking) {
+            m_model.seekPreview = preview;
+        }
         repaintWidget();
     }
     setHoverFading(true);
@@ -1174,6 +1229,9 @@ void Application::onPointerMove(POINT position) {
 
 void Application::onPointerLeave() {
     m_model.hover.reset();
+    if (!m_model.seeking) {
+        m_model.seekPreview.reset();
+    }
     m_wheelHook.reset();
     m_peekHoverSince = 0;
     updateQueuePeek();

@@ -161,6 +161,13 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
                 TRACKMOUSEEVENT track{.cbSize = sizeof(TRACKMOUSEEVENT), .dwFlags = TME_LEAVE, .hwndTrack = hwnd};
                 TrackMouseEvent(&track);
             }
+            if (m_scrubbing) {
+                m_lastScrub = POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)};
+                if (m_onScrub) {
+                    m_onScrub(m_lastScrub, false);
+                }
+                return 0;
+            }
             if (m_press) {
                 const POINT at{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)};
                 const UINT dpi = GetDpiForWindow(hwnd);
@@ -209,12 +216,35 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
                 }
                 return 0;
             }
+            if (const POINT at{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)}; m_onPress && m_onPress(at)) {
+                m_press.reset();
+                m_scrubbing = true;
+                m_dragged = true;  // No click when the button comes up.
+                m_lastScrub = at;
+                SetCapture(hwnd);
+                if (m_onScrub) {
+                    m_onScrub(at, false);
+                }
+                return 0;
+            }
             m_press = POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)};
             m_dragged = false;
             SetCapture(hwnd);  // Keeps the moves coming if the pointer leaves quickly.
             return 0;
 
         case WM_LBUTTONUP: {
+            if (m_scrubbing) {
+                m_scrubbing = false;
+                m_dragged = false;
+                m_lastScrub = POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)};
+                if (GetCapture() == hwnd) {
+                    ReleaseCapture();
+                }
+                if (m_onScrub) {
+                    m_onScrub(m_lastScrub, true);
+                }
+                return 0;
+            }
             // An up without a down (posted by a test, or the down went to the
             // taskbar) still counts as a click; an up ending a drag does not.
             const bool click = !m_dragged;
@@ -231,6 +261,12 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 
         case WM_CAPTURECHANGED:
             m_press.reset();
+            if (m_scrubbing) {  // Capture taken away mid-scrub: finish where it was.
+                m_scrubbing = false;
+                if (m_onScrub) {
+                    m_onScrub(m_lastScrub, true);
+                }
+            }
             return 0;
 
         case WM_NCDESTROY:

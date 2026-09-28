@@ -39,6 +39,7 @@ Every part of it is clickable:
 | **⏮ ⏯ ⏭** | Previous, play/pause, next |
 | **Repeat** | Cycles repeat off, the whole list, and one track, as Spotify's button does |
 | **Spectrum** | Cycles the colour mode |
+| **Progress line** (bottom edge) | Seeks: click or drag along it; pointing at it shows the time |
 
 Resting the pointer on **⏭** shows what plays next (with the Web API connected), and the
 **mouse wheel** anywhere over the widget changes Spotify's volume, the level showing briefly

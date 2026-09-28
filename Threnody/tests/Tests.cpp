@@ -6,6 +6,7 @@
 #include "color/DominantColor.h"
 #include "dsp/BeatDetector.h"
 #include "dsp/SpectrumAnalyzer.h"
+#include "interaction/HitTest.h"
 #include "media/SourceAppId.h"
 #include "render/WidgetLayout.h"
 #include "settings/Settings.h"
@@ -147,6 +148,12 @@ void testLayout() {
               narrow.repeat.right <= narrow.visualizer.left,
           "zones are laid out left to right");
     check(wide.title.width() <= threnody::config::textMaxWidthDip, "text column is clamped");
+    check(threnody::interaction::hitTest(narrow, narrow.width / 2.0f, narrow.height - 1.0f) ==
+              threnody::interaction::Zone::Progress,
+          "the bottom edge seeks");
+    check(threnody::interaction::hitTest(narrow, narrow.playPause.left + 1.0f, narrow.height / 2.0f) ==
+              threnody::interaction::Zone::PlayPause,
+          "the middle of a control is still the control");
 
     const WidgetLayout card = WidgetLayout::computeCard(22.0f, 18.0f);
     check(card.card && card.width == threnody::config::cardWidthDip, "card has the standard width");

@@ -93,6 +93,8 @@ private:
     void syncRepeat(const std::optional<RepeatMode>& reported);
     void refreshVolume();
     [[nodiscard]] float currentProgress() const;
+    [[nodiscard]] float seekFraction(POINT position) const;
+    void seekTo(float fraction);
     void showVolume(const std::optional<audio::VolumeState>& state);
     void onWheel(int delta);
 

@@ -48,6 +48,7 @@ WidgetLayout WidgetLayout::compute(float height, float titleWidth, float titleHe
     x += controlButtonWidthDip + widgetGapDip;
 
     layout.visualizer = {x, widgetPaddingDip, x + visualizerWidth, height - widgetPaddingDip};
+    layout.progress = {0.0f, height - progressHitDip, layout.width, height};
     return layout;
 }
 
@@ -74,6 +75,7 @@ WidgetLayout WidgetLayout::computeCard(float titleHeight, float artistHeight) no
         x += button;
     }
     layout.height = y + cardControlsHeightDip + cardPaddingDip;
+    layout.progress = {0.0f, layout.height - progressHitDip, layout.width, layout.height};
     return layout;
 }
 

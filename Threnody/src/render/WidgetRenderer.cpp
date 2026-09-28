@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <numbers>
 #include <vector>
 
@@ -531,7 +532,11 @@ Result<void> WidgetRenderer::draw(LayeredSurface& surface, const WidgetModel& mo
     drawText(layout);
     drawControls(layout, model);
     drawSeparator(layout);
-    drawSpectrum(layout, model);
+    if (model.seekPreview) {
+        drawSeekTime(layout, model);
+    } else {
+        drawSpectrum(layout, model);
+    }
     drawProgress(layout, model);
 
     const HRESULT hr = m_target->EndDraw();
@@ -610,7 +615,8 @@ void WidgetRenderer::drawProgress(const WidgetLayout& layout, const WidgetModel&
     D2D1_LAYER_PARAMETERS layer = D2D1::LayerParameters();
     layer.geometricMask = clip.get();
     m_target->PushLayer(layer, nullptr);
-    const float top = layout.height - config::progressHeightDip;
+    const bool active = model.seekPreview.has_value();
+    const float top = layout.height - (active ? config::progressActiveHeightDip : config::progressHeightDip);
     fill(config::progressBaseColor);
     m_target->FillRectangle({0.0f, top, layout.width, layout.height}, m_brush.get());
     fill(config::progressTrackColor);
@@ -618,9 +624,47 @@ void WidgetRenderer::drawProgress(const WidgetLayout& layout, const WidgetModel&
     // The same colour as the beat glow, so it follows the colour mode
     // (the rainbow sweep, the gradient wave, or the cover's colour).
     fill(barColor(model, 0));
-    m_target->FillRectangle({0.0f, top, layout.width * std::clamp(model.progress, 0.0f, 1.0f), layout.height},
-                            m_brush.get());
+    const float end = layout.width * std::clamp(model.progress, 0.0f, 1.0f);
+    m_target->FillRectangle({0.0f, top, end, layout.height}, m_brush.get());
     m_target->PopLayer();
+
+    // Pointed at: a knob on the position, as in Spotify.
+    if (active) {
+        const float r = config::progressKnobRadiusDip;
+        const float x = std::clamp(end, r, layout.width - r);
+        fill(config::titleColor);
+        m_target->FillEllipse(D2D1::Ellipse({x, layout.height - config::progressActiveHeightDip / 2.0f}, r, r),
+                              m_brush.get());
+    }
+}
+
+// "1:52 / 3:05": the time under the pointer and the length, in the
+// visualiser's place on the bar, under the controls on the card.
+void WidgetRenderer::drawSeekTime(const WidgetLayout& layout, const WidgetModel& model) {
+    if (!model.seekPreview || model.durationMs <= 0) {
+        return;
+    }
+    const auto format = [](std::int64_t ms) {
+        const std::int64_t seconds = std::max<std::int64_t>(0, ms / 1000);
+        return seconds >= 3600 ? std::format(L"{}:{:02}:{:02}", seconds / 3600, seconds / 60 % 60, seconds % 60)
+                               : std::format(L"{}:{:02}", seconds / 60, seconds % 60);
+    };
+    const auto at = static_cast<std::int64_t>(std::clamp(*model.seekPreview, 0.0f, 1.0f) *
+                                              static_cast<float>(model.durationMs));
+    const std::wstring text = format(at) + L" / " + format(model.durationMs);
+    const RectF box = layout.card ? RectF{0.0f, layout.repeat.bottom, layout.width, layout.progress.top}
+                                  : layout.visualizer;
+    winrt::com_ptr<IDWriteTextLayout> line;
+    if (FAILED(m_graphics.dwrite->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), &m_fonts.artist(),
+                                                   box.width(), box.height(), line.put()))) {
+        return;
+    }
+    line->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    line->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    DWRITE_TEXT_METRICS metrics{};
+    line->GetMetrics(&metrics);
+    fill(config::titleColor);
+    m_target->DrawTextLayout({box.left, box.top + (box.height() - metrics.height) / 2.0f}, line.get(), m_brush.get());
 }
 
 // The blurred cover under a shade, cross-fading when the cover changes.

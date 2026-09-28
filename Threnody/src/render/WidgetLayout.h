@@ -4,7 +4,7 @@ namespace threnody::render {
 
 // The clickable parts of the widget. Shared by hit-testing and by the
 // renderer, which highlights the one under the pointer.
-enum class Zone { Background, Cover, Title, Artist, Shuffle, Previous, PlayPause, Next, Repeat, Visualizer };
+enum class Zone { Background, Cover, Title, Artist, Shuffle, Previous, PlayPause, Next, Repeat, Visualizer, Progress };
 
 struct RectF {
     float left{};
@@ -39,6 +39,7 @@ struct WidgetLayout {
     RectF next;
     RectF repeat;
     RectF visualizer;
+    RectF progress;  // The strip along the bottom edge that seeks.
 
     // `titleWidth`/`artistWidth` are the natural widths of the text; they are
     // clamped to the configured maximum, and the overall width to the widget
