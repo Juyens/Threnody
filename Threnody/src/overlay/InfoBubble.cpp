@@ -1,4 +1,4 @@
-#include "overlay/QueuePeek.h"
+#include "overlay/InfoBubble.h"
 
 #include "Config.h"
 #include "util/Log.h"
@@ -10,9 +10,10 @@
 namespace threnody::overlay {
 namespace {
 
-constexpr wchar_t peekClassName[] = L"ThrenodyQueuePeek";
+constexpr wchar_t bubbleClassName[] = L"ThrenodyInfoBubble";
 constexpr UINT_PTR frameTimerId = 1;
 constexpr unsigned frameMs = 16;
+constexpr float lineSpacing = 1.35f;  // Line height as a multiple of the font size.
 
 constexpr D2D1_COLOR_F toD2D(const Color& c) noexcept {
     return {c.r, c.g, c.b, c.a};
@@ -23,7 +24,7 @@ Result<winrt::com_ptr<IDWriteTextFormat>> makeFormat(IDWriteFactory2& dwrite, fl
     HRESULT hr = dwrite.CreateTextFormat(config::fontFamily, nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
                                          DWRITE_FONT_STRETCH_NORMAL, size, L"", format.put());
     if (FAILED(hr)) {
-        return Error::fromHResult(hr, "CreateTextFormat(queue peek)");
+        return Error::fromHResult(hr, "CreateTextFormat(info bubble)");
     }
     format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
@@ -37,46 +38,46 @@ Result<winrt::com_ptr<IDWriteTextFormat>> makeFormat(IDWriteFactory2& dwrite, fl
 
 }  // namespace
 
-QueuePeek::QueuePeek(HINSTANCE instance, render::Graphics graphics)
+InfoBubble::InfoBubble(HINSTANCE instance, render::Graphics graphics)
     : m_instance(instance),
       m_graphics(std::move(graphics)),
       m_class(WNDCLASSEXW{
           .cbSize = sizeof(WNDCLASSEXW),
-          .lpfnWndProc = &QueuePeek::windowProc,
+          .lpfnWndProc = &InfoBubble::windowProc,
           .hInstance = instance,
-          .lpszClassName = peekClassName,
+          .lpszClassName = bubbleClassName,
       }) {}
 
-QueuePeek::~QueuePeek() = default;
+InfoBubble::~InfoBubble() = default;
 
-Result<std::unique_ptr<QueuePeek>> QueuePeek::create(HINSTANCE instance) {
+Result<std::unique_ptr<InfoBubble>> InfoBubble::create(HINSTANCE instance) {
     Result<render::Graphics> graphics = render::Graphics::create();
     if (!graphics) {
         return graphics.error();
     }
-    std::unique_ptr<QueuePeek> peek{new QueuePeek(instance, std::move(graphics.value()))};
-    if (const Result<void> ready = peek->init(); !ready) {
+    std::unique_ptr<InfoBubble> bubble{new InfoBubble(instance, std::move(graphics.value()))};
+    if (const Result<void> ready = bubble->init(); !ready) {
         return ready.error();
     }
-    return peek;
+    return bubble;
 }
 
-Result<void> QueuePeek::init() {
+Result<void> InfoBubble::init() {
     if (!m_class.registered()) {
-        return Error::fromLastError("RegisterClassEx(ThrenodyQueuePeek)");
+        return Error::fromLastError("RegisterClassEx(ThrenodyInfoBubble)");
     }
     m_hwnd.reset(CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
-                                 m_class.name(), L"Threnody up next", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr,
+                                 m_class.name(), L"Threnody info", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr,
                                  m_instance, this));
     if (!m_hwnd) {
-        return Error::fromLastError("CreateWindowEx(ThrenodyQueuePeek)");
+        return Error::fromLastError("CreateWindowEx(ThrenodyInfoBubble)");
     }
 
     IDWriteFactory2& dwrite = *m_graphics.dwrite;
     for (auto [format, size, weight] :
-         {std::tuple{&m_labelFormat, config::queuePeekLabelSizeDip, DWRITE_FONT_WEIGHT_NORMAL},
-          std::tuple{&m_titleFormat, config::queuePeekTitleSizeDip, DWRITE_FONT_WEIGHT_SEMI_BOLD},
-          std::tuple{&m_subtitleFormat, config::queuePeekSubtitleSizeDip, DWRITE_FONT_WEIGHT_NORMAL}}) {
+         {std::tuple{&m_labelFormat, config::bubbleLabelSizeDip, DWRITE_FONT_WEIGHT_NORMAL},
+          std::tuple{&m_titleFormat, config::bubbleTitleSizeDip, DWRITE_FONT_WEIGHT_SEMI_BOLD},
+          std::tuple{&m_lineFormat, config::bubbleLineSizeDip, DWRITE_FONT_WEIGHT_NORMAL}}) {
         Result<winrt::com_ptr<IDWriteTextFormat>> made = makeFormat(dwrite, size, weight);
         if (!made) {
             return made.error();
@@ -92,17 +93,29 @@ Result<void> QueuePeek::init() {
     };
     HRESULT hr = m_graphics.d2d->CreateDCRenderTarget(&properties, m_target.put());
     if (FAILED(hr)) {
-        return Error::fromHResult(hr, "CreateDCRenderTarget(queue peek)");
+        return Error::fromHResult(hr, "CreateDCRenderTarget(info bubble)");
     }
     m_target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
     hr = m_target->CreateSolidColorBrush(D2D1_COLOR_F{1.0f, 1.0f, 1.0f, 1.0f}, m_brush.put());
     if (FAILED(hr)) {
-        return Error::fromHResult(hr, "CreateSolidColorBrush(queue peek)");
+        return Error::fromHResult(hr, "CreateSolidColorBrush(info bubble)");
     }
     return {};
 }
 
-void QueuePeek::show(const RECT& anchor, UINT dpi, const Content& content) {
+float InfoBubble::textHeightDip() const noexcept {
+    using namespace config;
+    const float label = m_content.label.empty() ? 0.0f : bubbleLabelSizeDip * lineSpacing;
+    return label + bubbleTitleSizeDip * lineSpacing +
+           static_cast<float>(m_content.lines.size()) * bubbleLineSizeDip * lineSpacing;
+}
+
+// The image matches the text block's height, within limits.
+float InfoBubble::imageSideDip() const noexcept {
+    return std::clamp(textHeightDip(), config::bubbleImageMinDip, config::bubbleImageMaxDip);
+}
+
+void InfoBubble::show(const RECT& anchor, UINT dpi, const Content& content) {
     if (!m_hwnd) {
         return;
     }
@@ -113,9 +126,10 @@ void QueuePeek::show(const RECT& anchor, UINT dpi, const Content& content) {
     m_content = content;
     m_dpi = dpi == 0 ? 96 : dpi;
 
-    const int width = win32::scaleDip(static_cast<int>(config::queuePeekWidthDip), m_dpi);
-    const int height = win32::scaleDip(static_cast<int>(config::queuePeekHeightDip), m_dpi);
-    const int gap = win32::scaleDip(static_cast<int>(config::queuePeekGapDip), m_dpi);
+    const float heightDip = std::max(textHeightDip(), imageSideDip()) + 2.0f * config::bubblePaddingDip;
+    const int width = win32::scaleDip(static_cast<int>(config::bubbleWidthDip), m_dpi);
+    const int height = static_cast<int>(std::ceil(heightDip * static_cast<float>(m_dpi) / 96.0f));
+    const int gap = win32::scaleDip(static_cast<int>(config::bubbleGapDip), m_dpi);
     MONITORINFO monitor{.cbSize = sizeof(MONITORINFO)};
     GetMonitorInfoW(MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST), &monitor);
     const RECT& screen = monitor.rcMonitor;
@@ -145,19 +159,19 @@ void QueuePeek::show(const RECT& anchor, UINT dpi, const Content& content) {
     }
 }
 
-void QueuePeek::hide() {
+void InfoBubble::hide() {
     if (visible()) {
         KillTimer(m_hwnd.get(), frameTimerId);
         ShowWindow(m_hwnd.get(), SW_HIDE);
     }
 }
 
-bool QueuePeek::visible() const noexcept {
+bool InfoBubble::visible() const noexcept {
     return m_hwnd && IsWindowVisible(m_hwnd.get());
 }
 
-void QueuePeek::frame() {
-    const float t = static_cast<float>(GetTickCount64() - m_shownTick) / config::queuePeekFadeMs;
+void InfoBubble::frame() {
+    const float t = static_cast<float>(GetTickCount64() - m_shownTick) / config::bubbleFadeMs;
     m_alpha = static_cast<BYTE>(std::lround(std::clamp(t, 0.0f, 1.0f) * 255.0f));
     if (const Result<void> presented = m_surface.present(m_hwnd.get(), m_alpha); !presented) {
         log::error("{}", presented.error().describe());
@@ -167,17 +181,17 @@ void QueuePeek::frame() {
     }
 }
 
-Result<winrt::com_ptr<ID2D1Bitmap>> QueuePeek::decodeCover() {
+Result<winrt::com_ptr<ID2D1Bitmap>> InfoBubble::decodeImage(UINT sidePx) {
     IWICImagingFactory& wic = *m_graphics.wic;
     winrt::com_ptr<IWICStream> stream;
     winrt::com_ptr<IWICBitmapDecoder> decoder;
     winrt::com_ptr<IWICBitmapFrameDecode> frame;
+    winrt::com_ptr<IWICBitmapClipper> clipper;
     winrt::com_ptr<IWICBitmapScaler> scaler;
     winrt::com_ptr<IWICFormatConverter> converter;
-    const UINT side = static_cast<UINT>(win32::scaleDip(static_cast<int>(config::queuePeekCoverDip), m_dpi));
     HRESULT hr = wic.CreateStream(stream.put());
     if (SUCCEEDED(hr)) {
-        hr = stream->InitializeFromMemory(m_content.cover.data(), static_cast<DWORD>(m_content.cover.size()));
+        hr = stream->InitializeFromMemory(m_content.image.data(), static_cast<DWORD>(m_content.image.size()));
     }
     if (SUCCEEDED(hr)) {
         hr = wic.CreateDecoderFromStream(stream.get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.put());
@@ -185,11 +199,26 @@ Result<winrt::com_ptr<ID2D1Bitmap>> QueuePeek::decodeCover() {
     if (SUCCEEDED(hr)) {
         hr = decoder->GetFrame(0, frame.put());
     }
+    // Centre square, then scaled: artist photos are not always square.
+    UINT width = 0;
+    UINT height = 0;
+    if (SUCCEEDED(hr)) {
+        hr = frame->GetSize(&width, &height);
+    }
+    if (SUCCEEDED(hr)) {
+        hr = wic.CreateBitmapClipper(clipper.put());
+    }
+    if (SUCCEEDED(hr)) {
+        const UINT side = std::min(width, height);
+        const WICRect square{static_cast<INT>((width - side) / 2), static_cast<INT>((height - side) / 2),
+                             static_cast<INT>(side), static_cast<INT>(side)};
+        hr = clipper->Initialize(frame.get(), &square);
+    }
     if (SUCCEEDED(hr)) {
         hr = wic.CreateBitmapScaler(scaler.put());
     }
     if (SUCCEEDED(hr)) {
-        hr = scaler->Initialize(frame.get(), side, side, WICBitmapInterpolationModeHighQualityCubic);
+        hr = scaler->Initialize(clipper.get(), sidePx, sidePx, WICBitmapInterpolationModeHighQualityCubic);
     }
     if (SUCCEEDED(hr)) {
         hr = wic.CreateFormatConverter(converter.put());
@@ -203,28 +232,30 @@ Result<winrt::com_ptr<ID2D1Bitmap>> QueuePeek::decodeCover() {
         hr = m_target->CreateBitmapFromWicBitmap(converter.get(), nullptr, bitmap.put());
     }
     if (FAILED(hr)) {
-        return Error::fromHResult(hr, "queue peek cover");
+        return Error::fromHResult(hr, "info bubble image");
     }
     return bitmap;
 }
 
-Result<void> QueuePeek::draw() {
+Result<void> InfoBubble::draw() {
     using namespace config;
     m_target->SetDpi(static_cast<float>(m_dpi), static_cast<float>(m_dpi));
     const SIZE size = m_surface.size();
     const RECT bounds{0, 0, size.cx, size.cy};
     if (const HRESULT hr = m_target->BindDC(m_surface.dc(), &bounds); FAILED(hr)) {
-        return Error::fromHResult(hr, "BindDC(queue peek)");
+        return Error::fromHResult(hr, "BindDC(info bubble)");
     }
-    const float width = queuePeekWidthDip;
-    const float height = queuePeekHeightDip;
-    const float pad = queuePeekPaddingDip;
+    const float width = bubbleWidthDip;
+    const float height = static_cast<float>(size.cy) * 96.0f / static_cast<float>(m_dpi);
+    const float pad = bubblePaddingDip;
+    const float side = imageSideDip();
     const auto fill = [&](const Color& color) { m_brush->SetColor(toD2D(color)); };
 
-    winrt::com_ptr<ID2D1Bitmap> cover;
-    if (!m_content.cover.empty()) {
-        if (Result<winrt::com_ptr<ID2D1Bitmap>> decoded = decodeCover(); decoded) {
-            cover = std::move(decoded.value());
+    winrt::com_ptr<ID2D1Bitmap> image;
+    if (!m_content.image.empty()) {
+        const auto sidePx = static_cast<UINT>(std::lround(side * static_cast<float>(m_dpi) / 96.0f));
+        if (Result<winrt::com_ptr<ID2D1Bitmap>> decoded = decodeImage(std::max(1u, sidePx)); decoded) {
+            image = std::move(decoded.value());
         }
     }
 
@@ -235,60 +266,63 @@ Result<void> QueuePeek::draw() {
                                    m_brush.get());
     fill(popupBorderColor);
     m_target->DrawRoundedRectangle(
-        {{0.5f, 0.5f, width - 0.5f, height - 0.5f}, popupCornerRadiusDip, popupCornerRadiusDip},
-        m_brush.get(), 1.0f);
+        {{0.5f, 0.5f, width - 0.5f, height - 0.5f}, popupCornerRadiusDip, popupCornerRadiusDip}, m_brush.get(), 1.0f);
 
-    const float coverTop = (height - queuePeekCoverDip) / 2.0f;
-    const D2D1_ROUNDED_RECT coverShape{{pad, coverTop, pad + queuePeekCoverDip, coverTop + queuePeekCoverDip},
-                                       coverCornerRadiusDip, coverCornerRadiusDip};
+    // The image, a rounded square or (for a person) a circle.
+    const float imageTop = (height - side) / 2.0f;
+    const D2D1_RECT_F imageRect{pad, imageTop, pad + side, imageTop + side};
+    const float radius = m_content.roundImage ? side / 2.0f : coverCornerRadiusDip;
     winrt::com_ptr<ID2D1RoundedRectangleGeometry> clip;
-    if (cover && SUCCEEDED(m_graphics.d2d->CreateRoundedRectangleGeometry(coverShape, clip.put()))) {
+    if (image && SUCCEEDED(m_graphics.d2d->CreateRoundedRectangleGeometry({imageRect, radius, radius}, clip.put()))) {
         D2D1_LAYER_PARAMETERS layer = D2D1::LayerParameters();
         layer.geometricMask = clip.get();
         m_target->PushLayer(layer, nullptr);
-        m_target->DrawBitmap(cover.get(), coverShape.rect);
+        m_target->DrawBitmap(image.get(), imageRect);
         m_target->PopLayer();
     } else {
         fill(coverPlaceholderColor);
-        m_target->FillRoundedRectangle(coverShape, m_brush.get());
+        m_target->FillRoundedRectangle({imageRect, radius, radius}, m_brush.get());
     }
 
-    const float textLeft = pad + queuePeekCoverDip + pad;
+    // Text, centred as a block against the image.
+    const float textLeft = pad + side + pad;
     const float textRight = width - pad;
-    const auto line = [&](const std::wstring& text, IDWriteTextFormat& format, const Color& color, float top,
-                          float lineHeight) {
+    float y = (height - textHeightDip()) / 2.0f;
+    const auto line = [&](const std::wstring& text, IDWriteTextFormat& format, const Color& color, float fontSize) {
+        const float lineHeight = fontSize * lineSpacing;
         fill(color);
         m_target->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), &format,
-                            {textLeft, top, textRight, top + lineHeight}, m_brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                            {textLeft, y, textRight, y + lineHeight}, m_brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        y += lineHeight;
     };
-    const float labelHeight = queuePeekLabelSizeDip * 1.35f;
-    const float titleHeight = queuePeekTitleSizeDip * 1.35f;
-    const float subtitleHeight = queuePeekSubtitleSizeDip * 1.35f;
-    const float top = (height - labelHeight - titleHeight - subtitleHeight) / 2.0f;
-    line(m_content.label, *m_labelFormat, controlActiveColor, top, labelHeight);
-    line(m_content.title, *m_titleFormat, titleColor, top + labelHeight, titleHeight);
-    line(m_content.subtitle, *m_subtitleFormat, artistColor, top + labelHeight + titleHeight, subtitleHeight);
+    if (!m_content.label.empty()) {
+        line(m_content.label, *m_labelFormat, controlActiveColor, bubbleLabelSizeDip);
+    }
+    line(m_content.title, *m_titleFormat, titleColor, bubbleTitleSizeDip);
+    for (const std::wstring& detail : m_content.lines) {
+        line(detail, *m_lineFormat, artistColor, bubbleLineSizeDip);
+    }
 
     const HRESULT hr = m_target->EndDraw();
     if (FAILED(hr)) {
-        return Error::fromHResult(hr, "EndDraw(queue peek)");
+        return Error::fromHResult(hr, "EndDraw(info bubble)");
     }
     return {};
 }
 
-LRESULT CALLBACK QueuePeek::windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK InfoBubble::windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     if (message == WM_NCCREATE) {
         const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
     }
-    auto* self = reinterpret_cast<QueuePeek*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    auto* self = reinterpret_cast<InfoBubble*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (self == nullptr) {
         return DefWindowProcW(hwnd, message, wParam, lParam);
     }
     return self->handle(hwnd, message, wParam, lParam);
 }
 
-LRESULT QueuePeek::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+LRESULT InfoBubble::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
         case WM_TIMER:
             if (wParam == frameTimerId) {

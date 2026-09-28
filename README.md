@@ -41,7 +41,9 @@ Every part of it is clickable:
 | **Spectrum** | Cycles the colour mode |
 | **Progress line** (bottom edge) | Seeks: click or drag along it; pointing at it shows the time |
 
-Resting the pointer on **⏭** shows what plays next (with the Web API connected), and the
+Resting the pointer on **⏭** shows what plays next, on the **title** the song's details (artists,
+album and year, length, track number) and on the **artist** their photo, genres and latest release
+(all with the Web API connected); and the
 **mouse wheel** anywhere over the widget changes Spotify's volume, the level showing briefly
 where the bars are.
 

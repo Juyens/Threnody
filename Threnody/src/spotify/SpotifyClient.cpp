@@ -18,6 +18,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <mutex>
@@ -36,7 +37,9 @@ constexpr wchar_t tokenEndpoint[] = L"https://accounts.spotify.com/api/token";
 // (undocumented) smart_shuffle flag that nothing else exposes.
 constexpr wchar_t nowPlayingEndpoint[] = L"https://api.spotify.com/v1/me/player";
 constexpr wchar_t queueEndpoint[] = L"https://api.spotify.com/v1/me/player/queue";
-constexpr std::size_t artworkCacheSize = 4;  // The current cover and the next one, with room to spare.
+constexpr std::size_t artworkCacheSize = 6;  // Current and next covers, an artist photo, room to spare.
+constexpr std::size_t artistCacheSize = 4;
+constexpr wchar_t artistsEndpoint[] = L"https://api.spotify.com/v1/artists/";
 constexpr unsigned authorizationTimeoutSeconds = 300;
 constexpr int minArtworkPx = 128;  // Covers the widget's cover square at high DPI.
 constexpr std::uint32_t maxArtworkBytes = std::uint32_t{8} << 20;
@@ -59,19 +62,14 @@ std::wstring urlEncode(std::wstring_view text) {
     return out;
 }
 
-// The smallest album image at least `minArtworkPx` wide, else the widest.
+// The smallest image at least `minArtworkPx` wide, else the widest.
 // Spotify lists images widest first; a missing width counts as unknown.
-std::wstring pickArtworkUrl(const json& item) {
-    const auto album = item.find("album");
-    if (album == item.end() || !album->is_object()) {
-        return {};
-    }
-    const auto images = album->find("images");
-    if (images == album->end() || !images->is_array()) {
+std::wstring pickImageUrl(const json& images) {
+    if (!images.is_array()) {
         return {};
     }
     std::string best;
-    for (const json& image : *images) {
+    for (const json& image : images) {
         if (!image.is_object()) {
             continue;
         }
@@ -88,6 +86,15 @@ std::wstring pickArtworkUrl(const json& item) {
     return text::toWide(best);
 }
 
+std::wstring pickArtworkUrl(const json& item) {
+    const auto album = item.find("album");
+    if (album == item.end() || !album->is_object()) {
+        return {};
+    }
+    const auto images = album->find("images");
+    return images == album->end() ? std::wstring{} : pickImageUrl(*images);
+}
+
 }  // namespace
 
 struct SpotifyClient::Shared {
@@ -99,6 +106,8 @@ struct SpotifyClient::Shared {
     std::chrono::steady_clock::time_point accessTokenExpiry{};
     Status status;
     std::optional<TrackLinks> links;
+    std::deque<ArtistInfo> artists;         // Most recent first.
+    std::vector<std::wstring> artistsAsked;  // In flight, so a second ask waits for the first.
     std::optional<PlayerModes> modes;
     std::deque<Artwork> artworks;  // Most recent first.
     std::uint32_t queueRequests{};
@@ -306,8 +315,22 @@ winrt::fire_and_forget fetchNowPlaying(std::weak_ptr<Shared> weak) {
         if (const auto artists = item->find("artists"); artists != item->end() && artists->is_array() && !artists->empty()) {
             links.artistName = text::toWide(artists->front().value("name", ""));
             links.artistUri = text::toWide(artists->front().value("uri", ""));
+            links.artistId = text::toWide(artists->front().value("id", ""));
+            for (const json& artist : *artists) {
+                if (artist.is_object()) {
+                    links.artistNames.push_back(text::toWide(artist.value("name", "")));
+                }
+            }
         }
         links.artworkUrl = pickArtworkUrl(*item);
+        if (const auto album = item->find("album"); album != item->end() && album->is_object()) {
+            links.albumName = text::toWide(album->value("name", ""));
+            links.releaseDate = text::toWide(album->value("release_date", ""));
+            links.albumTracks = album->value("total_tracks", 0);
+        }
+        links.durationMs = item->value("duration_ms", std::int64_t{0});
+        links.explicitContent = item->value("explicit", false);
+        links.trackNumber = item->value("track_number", 0);
         {
             std::scoped_lock lock{shared->mutex};
             shared->links = std::move(links);
@@ -387,6 +410,88 @@ winrt::fire_and_forget fetchQueue(std::weak_ptr<Shared> weak, std::uint32_t requ
         shared->queue = std::move(result);
     }
     shared->notify();
+}
+
+// An artist and their newest release: the most recent date among the first
+// ten albums and singles the albums endpoint returns.
+winrt::fire_and_forget fetchArtist(std::weak_ptr<Shared> weak, std::wstring id) {
+    auto shared = weak.lock();
+    if (!shared) {
+        co_return;
+    }
+    // However this ends, the artist may be asked for again.
+    struct Done {
+        std::shared_ptr<Shared> shared;
+        std::wstring id;
+        ~Done() {
+            std::scoped_lock lock{shared->mutex};
+            std::erase(shared->artistsAsked, id);
+        }
+    } done{shared, id};
+    const winrt::hstring token = co_await ensureAccessToken(shared);
+    if (token.empty()) {
+        co_return;
+    }
+    try {
+        HttpClient client;
+        client.DefaultRequestHeaders().Authorization(Headers::HttpCredentialsHeaderValue{L"Bearer", token});
+        const std::wstring base = std::wstring{artistsEndpoint} + id;
+        HttpResponseMessage response = co_await client.GetAsync(Uri{base});
+        winrt::hstring body = co_await response.Content().ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode()) {
+            log::warn("Spotify artist: HTTP {}", static_cast<int>(response.StatusCode()));
+            co_return;
+        }
+        const json artist = json::parse(winrt::to_string(body));
+        ArtistInfo info;
+        info.id = id;
+        info.name = text::toWide(artist.value("name", ""));
+        if (const auto images = artist.find("images"); images != artist.end()) {
+            info.imageUrl = pickImageUrl(*images);
+        }
+        if (const auto genres = artist.find("genres"); genres != artist.end() && genres->is_array()) {
+            for (const json& genre : *genres) {
+                if (genre.is_string()) {
+                    info.genres.push_back(text::toWide(genre.get<std::string>()));
+                }
+            }
+        }
+
+        response = co_await client.GetAsync(Uri{base + L"/albums?include_groups=album,single&limit=10"});
+        body = co_await response.Content().ReadAsStringAsync();
+        if (response.IsSuccessStatusCode()) {
+            const json albums = json::parse(winrt::to_string(body));
+            std::string newestDate;
+            if (const auto items = albums.find("items"); items != albums.end() && items->is_array()) {
+                for (const json& album : *items) {
+                    if (!album.is_object()) {
+                        continue;
+                    }
+                    const std::string date = album.value("release_date", "");
+                    if (date > newestDate) {  // ISO dates compare as text.
+                        newestDate = date;
+                        info.latestRelease = text::toWide(album.value("name", ""));
+                        info.latestReleaseDate = text::toWide(date);
+                    }
+                }
+            }
+        }
+        log::info("Spotify artist: {} ({} genres, latest release {})", text::toUtf8(info.name), info.genres.size(),
+                  info.latestReleaseDate.empty() ? "unknown" : text::toUtf8(info.latestReleaseDate));
+        {
+            std::scoped_lock lock{shared->mutex};
+            std::erase_if(shared->artists, [&](const ArtistInfo& a) { return a.id == info.id; });
+            shared->artists.push_front(std::move(info));
+            if (shared->artists.size() > artistCacheSize) {
+                shared->artists.pop_back();
+            }
+        }
+        shared->notify();
+    } catch (const winrt::hresult_error& e) {
+        log::warn("Spotify artist failed: {}", describe(e));
+    } catch (const json::exception& e) {
+        log::warn("Spotify artist: bad JSON: {}", e.what());
+    }
 }
 
 // Album art lives on Spotify's public image CDN; no token needed.
@@ -529,6 +634,7 @@ void SpotifyClient::disconnect() {
         m_shared->accessToken.clear();
         m_shared->links.reset();
         m_shared->artworks.clear();
+        m_shared->artists.clear();
         m_shared->queue.reset();
         m_shared->status = {AuthState::Disconnected, ""};
         listener = std::move(m_shared->listener);
@@ -566,6 +672,30 @@ std::optional<Artwork> SpotifyClient::artwork(const std::wstring& url) const {
     for (const Artwork& artwork : m_shared->artworks) {
         if (artwork.url == url) {
             return artwork;
+        }
+    }
+    return std::nullopt;
+}
+
+void SpotifyClient::requestArtist(std::wstring id) {
+    if (id.empty() || artist(id) || !connected()) {
+        return;
+    }
+    {
+        std::scoped_lock lock{m_shared->mutex};
+        if (std::ranges::find(m_shared->artistsAsked, id) != m_shared->artistsAsked.end()) {
+            return;
+        }
+        m_shared->artistsAsked.push_back(id);
+    }
+    fetchArtist(m_shared, std::move(id));
+}
+
+std::optional<ArtistInfo> SpotifyClient::artist(const std::wstring& id) const {
+    std::scoped_lock lock{m_shared->mutex};
+    for (const ArtistInfo& info : m_shared->artists) {
+        if (info.id == id) {
+            return info;
         }
     }
     return std::nullopt;

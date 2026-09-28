@@ -19,6 +19,7 @@
 #include "util/Text.h"
 
 #include <chrono>
+#include <format>
 #include <cmath>
 
 namespace threnody {
@@ -311,7 +312,7 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 KillTimer(hwnd, peekTimerId);
             KillTimer(hwnd, queueRetryTimerId);
             KillTimer(hwnd, playerRecheckTimerId);
-                updateQueuePeek();
+                updateBubble();
             } else if (wParam == playerRecheckTimerId) {
                 KillTimer(hwnd, playerRecheckTimerId);
                 if (m_spotify && m_spotify->connected()) {
@@ -324,7 +325,7 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                 }
             } else if (wParam == queueRetryTimerId) {
                 KillTimer(hwnd, queueRetryTimerId);
-                if (!m_upNextKnown && m_queueRequest == 0 && m_peekHoverSince != 0 && m_spotify) {
+                if (!m_upNextKnown && m_queueRequest == 0 && m_bubbleZone == render::Zone::Next && m_spotify) {
                     m_queueRequest = m_spotify->requestQueue();
                 }
             }
@@ -528,8 +529,7 @@ void Application::beginResize(UINT edges) {
     GetWindowRect(m_widget.hwnd(), &m_drag->startRect);
     GetCursorPos(&m_drag->startCursor);
     m_wheelHook.reset();
-    m_peekHoverSince = 0;
-    updateQueuePeek();
+    pointBubble(std::nullopt);
     SetTimer(m_messageWindow.get(), dragTimerId, config::dragFrameMs, nullptr);
 }
 
@@ -554,8 +554,7 @@ void Application::beginDrag(POINT grab) {
     m_drag = Drag{.grab = grab};
     // The window under the hook and the bubble is about to be replaced.
     m_wheelHook.reset();
-    m_peekHoverSince = 0;
-    updateQueuePeek();
+    pointBubble(std::nullopt);
     m_model.hover.reset();
     m_model.hoverProgress = 0.0f;
 
@@ -877,9 +876,11 @@ void Application::onWidgetClick(POINT position) {
             m_spotifyWindow.toggle();
             break;
         case interaction::Zone::Title:
+            pointBubble(std::nullopt);
             openTrackOrArtist(false);
             break;
         case interaction::Zone::Artist:
+            pointBubble(std::nullopt);
             openTrackOrArtist(true);
             break;
         case interaction::Zone::Shuffle:
@@ -1046,34 +1047,139 @@ void Application::onWheel(int delta) {
     repaintWidget();
 }
 
-// Shows the bubble once the pointer has rested on "next" for a moment and
-// the queue has answered; hides it otherwise.
-void Application::updateQueuePeek() {
-    const bool resting =
-        m_peekHoverSince != 0 && GetTickCount64() - m_peekHoverSince >= config::queuePeekDelayMs;
-    if (!resting || !m_upNextKnown || !m_upNext || !m_spotify) {
-        if (m_queuePeek && !resting) {
-            m_queuePeek->hide();
+// Shows the bubble for the part under the pointer once it has rested there
+// a moment and its data is in; hides it otherwise.
+void Application::updateBubble() {
+    const unsigned delay = m_bubbleZone == render::Zone::Next ? config::bubbleDelayMs : config::bubbleTextDelayMs;
+    const bool resting = m_bubbleZone && m_peekHoverSince != 0 && GetTickCount64() - m_peekHoverSince >= delay;
+    std::optional<overlay::InfoBubble::Content> content;
+    if (resting && m_spotify) {
+        content = bubbleContent(*m_bubbleZone);
+    }
+    if (!content) {
+        if (m_bubble && (!resting || m_bubble->visible())) {
+            m_bubble->hide();
         }
         return;
     }
-    if (!m_queuePeek) {
-        Result<std::unique_ptr<overlay::QueuePeek>> peek = overlay::QueuePeek::create(m_instance);
-        if (!peek) {
-            log::error("queue peek unavailable: {}", peek.error().describe());
+    if (!m_bubble) {
+        Result<std::unique_ptr<overlay::InfoBubble>> bubble = overlay::InfoBubble::create(m_instance);
+        if (!bubble) {
+            log::error("info bubble unavailable: {}", bubble.error().describe());
             return;
         }
-        m_queuePeek = std::move(peek.value());
+        m_bubble = std::move(bubble.value());
     }
-    overlay::QueuePeek::Content content{
-        .label = strings().upNext.wide,
-        .title = m_upNext->name,
-        .subtitle = m_upNext->artist,
+    const render::RectF& zone = *m_bubbleZone == render::Zone::Next    ? m_widgetLayout.next
+                                : *m_bubbleZone == render::Zone::Title ? m_widgetLayout.title
+                                                                       : m_widgetLayout.artist;
+    m_bubble->show(zoneOnScreen(zone), m_widgetDpi, *content);
+}
+
+// What the bubble says for `zone`, or nothing while its data is not in.
+std::optional<overlay::InfoBubble::Content> Application::bubbleContent(render::Zone zone) {
+    const i18n::Strings& text = strings();
+    if (zone == render::Zone::Next) {
+        if (!m_upNextKnown || !m_upNext) {
+            return std::nullopt;
+        }
+        overlay::InfoBubble::Content content{
+            .label = text.upNext.wide, .title = m_upNext->name, .lines = {m_upNext->artist}};
+        if (std::optional<spotify::Artwork> artwork = m_spotify->artwork(m_upNext->artworkUrl)) {
+            content.image = std::move(artwork->bytes);
+        }
+        return content;
+    }
+    if (!linksMatchCurrentTrack()) {
+        return std::nullopt;  // The Web API has not caught up with this track yet.
+    }
+    const auto year = [](const std::wstring& date) { return date.substr(0, 4); };
+    const auto join = [](const std::vector<std::wstring>& parts, std::wstring_view separator) {
+        std::wstring joined;
+        for (const std::wstring& part : parts) {
+            joined += (joined.empty() ? L"" : std::wstring{separator}) + part;
+        }
+        return joined;
     };
-    if (std::optional<spotify::Artwork> artwork = m_spotify->artwork(m_upNext->artworkUrl)) {
-        content.cover = std::move(artwork->bytes);
+
+    if (zone == render::Zone::Title) {
+        overlay::InfoBubble::Content content{.title = m_links->trackName, .image = m_model.coverImage};
+        content.lines.push_back(join(m_links->artistNames, L", "));
+        if (!m_links->albumName.empty()) {
+            content.lines.push_back(m_links->releaseDate.empty() ? m_links->albumName
+                                                                 : m_links->albumName + L" \u00B7 " +
+                                                                       year(m_links->releaseDate));
+        }
+        std::vector<std::wstring> facts;
+        if (m_links->durationMs > 0) {
+            const std::int64_t seconds = m_links->durationMs / 1000;
+            facts.push_back(std::format(L"{}:{:02}", seconds / 60, seconds % 60));
+        }
+        if (m_links->explicitContent) {
+            facts.emplace_back(text.explicitMark.wide);
+        }
+        if (m_links->trackNumber > 0 && m_links->albumTracks > 1) {
+            facts.push_back(std::vformat(std::wstring_view{text.trackOfAlbum.wide},
+                                         std::make_wformat_args(m_links->trackNumber, m_links->albumTracks)));
+        }
+        if (!facts.empty()) {
+            content.lines.push_back(join(facts, L" \u00B7 "));
+        }
+        return content;
     }
-    m_queuePeek->show(zoneOnScreen(m_widgetLayout.next), m_widgetDpi, content);
+
+    // The artist.
+    m_spotify->requestArtist(m_links->artistId);
+    const std::optional<spotify::ArtistInfo> artist = m_spotify->artist(m_links->artistId);
+    if (!artist) {
+        return std::nullopt;
+    }
+    overlay::InfoBubble::Content content{.label = text.artistLabel.wide, .title = artist->name, .roundImage = true};
+    if (!artist->genres.empty()) {
+        const std::vector<std::wstring> genres(
+            artist->genres.begin(),
+            artist->genres.begin() + static_cast<std::ptrdiff_t>(std::min(artist->genres.size(), config::bubbleGenres)));
+        content.lines.push_back(join(genres, L" \u00B7 "));
+    }
+    if (!artist->latestRelease.empty()) {
+        const std::wstring when = year(artist->latestReleaseDate);
+        content.lines.push_back(std::vformat(std::wstring_view{text.latestRelease.wide},
+                                             std::make_wformat_args(artist->latestRelease, when)));
+    }
+    m_spotify->requestArtwork(artist->imageUrl);
+    if (std::optional<spotify::Artwork> photo = m_spotify->artwork(artist->imageUrl)) {
+        content.image = std::move(photo->bytes);
+    }
+    return content;
+}
+
+// The pointer moved onto (or off) a part that has a bubble: restart the
+// pause, fetch what that bubble needs, and hide the one showing.
+void Application::pointBubble(std::optional<render::Zone> zone) {
+    const bool bubbled = zone == render::Zone::Next || zone == render::Zone::Title || zone == render::Zone::Artist;
+    if (!bubbled) {
+        zone.reset();
+    }
+    if (zone == m_bubbleZone) {
+        return;
+    }
+    m_bubbleZone = zone;
+    m_peekHoverSince = zone ? GetTickCount64() : 0;
+    if (m_bubble) {
+        m_bubble->hide();
+    }
+    if (!zone) {
+        return;
+    }
+    if (*zone == render::Zone::Next) {
+        if (!m_upNextKnown && m_queueRequest == 0 && m_spotify && m_spotify->connected()) {
+            m_queueRequest = m_spotify->requestQueue();
+        }
+    } else if (*zone == render::Zone::Artist && m_spotify && linksMatchCurrentTrack()) {
+        m_spotify->requestArtist(m_links->artistId);
+    }
+    SetTimer(m_messageWindow.get(), peekTimerId,
+             *zone == render::Zone::Next ? config::bubbleDelayMs : config::bubbleTextDelayMs, nullptr);
 }
 
 // Takes a queue answer as what plays next. One still out of step with SMTC
@@ -1100,10 +1206,10 @@ void Application::forgetUpNext() {
     m_upNextKnown = false;
     m_queueRequest = 0;
     m_queueRetries = 0;
-    if (m_queuePeek) {
-        m_queuePeek->hide();
+    if (m_bubble && m_bubbleZone == render::Zone::Next) {
+        m_bubble->hide();
     }
-    if (m_peekHoverSince != 0 && m_spotify && m_spotify->connected()) {
+    if (m_bubbleZone == render::Zone::Next && m_spotify && m_spotify->connected()) {
         m_queueRequest = m_spotify->requestQueue();
     }
 }
@@ -1214,17 +1320,7 @@ void Application::onPointerMove(POINT position) {
         });
     }
 
-    const bool overNext = zone == render::Zone::Next;
-    if (overNext && m_peekHoverSince == 0) {
-        m_peekHoverSince = GetTickCount64();
-        if (!m_upNextKnown && m_queueRequest == 0 && m_spotify && m_spotify->connected()) {
-            m_queueRequest = m_spotify->requestQueue();
-        }
-        SetTimer(m_messageWindow.get(), peekTimerId, config::queuePeekDelayMs, nullptr);
-    } else if (!overNext && m_peekHoverSince != 0) {
-        m_peekHoverSince = 0;
-        updateQueuePeek();
-    }
+    pointBubble(zone);
 }
 
 void Application::onPointerLeave() {
@@ -1233,8 +1329,7 @@ void Application::onPointerLeave() {
         m_model.seekPreview.reset();
     }
     m_wheelHook.reset();
-    m_peekHoverSince = 0;
-    updateQueuePeek();
+    pointBubble(std::nullopt);
     setHoverFading(true);
     repaintWidget();
 }
@@ -1431,7 +1526,7 @@ void Application::onSpotifyChanged() {
                 }
             }
         }
-        updateQueuePeek();
+        updateBubble();
     }
     publishSpotifyStatus();
 }

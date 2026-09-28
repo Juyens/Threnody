@@ -252,18 +252,22 @@ inline constexpr Color floatingBorderColor{1.0f, 1.0f, 1.0f, 0.10f};
 inline constexpr Color floatingHoverBackgroundColor{0.17f, 0.17f, 0.17f, 0.97f};
 inline constexpr Color floatingHoverBorderColor{1.0f, 1.0f, 1.0f, 0.18f};
 
-// Queue peek: resting the pointer on "next" shows what plays next in a
-// bubble over the button, after a short pause so passing over it does not.
-inline constexpr unsigned queuePeekDelayMs = 350;
-inline constexpr float queuePeekWidthDip = 250.0f;
-inline constexpr float queuePeekHeightDip = 64.0f;
-inline constexpr float queuePeekPaddingDip = 10.0f;
-inline constexpr float queuePeekCoverDip = 44.0f;
-inline constexpr float queuePeekGapDip = 8.0f;
-inline constexpr float queuePeekLabelSizeDip = 10.5f;
-inline constexpr float queuePeekTitleSizeDip = 13.0f;
-inline constexpr float queuePeekSubtitleSizeDip = 11.5f;
-inline constexpr unsigned queuePeekFadeMs = 140;
+// Info bubbles: resting the pointer on "next" shows what plays next, on the
+// title the song's details, on the artist the artist's; after a short pause,
+// so passing over them does not. The image matches the text block's height
+// within the limits.
+inline constexpr unsigned bubbleDelayMs = 350;
+inline constexpr unsigned bubbleTextDelayMs = 500;  // Title and artist: longer, they are big targets.
+inline constexpr float bubbleWidthDip = 290.0f;
+inline constexpr float bubblePaddingDip = 10.0f;
+inline constexpr float bubbleImageMinDip = 44.0f;
+inline constexpr float bubbleImageMaxDip = 72.0f;
+inline constexpr float bubbleGapDip = 8.0f;
+inline constexpr float bubbleLabelSizeDip = 10.5f;
+inline constexpr float bubbleTitleSizeDip = 13.0f;
+inline constexpr float bubbleLineSizeDip = 11.5f;
+inline constexpr unsigned bubbleFadeMs = 140;
+inline constexpr std::size_t bubbleGenres = 3;  // At most this many of the artist's genres.
 // Right after a skip the Web API still describes the previous track; a queue
 // read then is asked again after this long, up to this many times.
 inline constexpr unsigned queueRetryMs = 600;

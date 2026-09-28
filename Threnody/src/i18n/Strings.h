@@ -18,8 +18,13 @@ struct Strings {
     Text placeholderTitle;
     Text placeholderArtist;
 
-    // Bubble over the next button showing the queued track.
+    // Info bubbles: the queued track, the song, the artist. The track and
+    // release lines are std::format patterns.
     Text upNext;
+    Text artistLabel;
+    Text explicitMark;
+    Text trackOfAlbum;   // {} = track number, {} = tracks on the album
+    Text latestRelease;  // {} = title, {} = year
 
     // Tray menu.
     Text menuSettings;
@@ -75,6 +80,10 @@ inline constexpr Strings spanish{
     .placeholderTitle = {L"Spotify", "Spotify"},
     .placeholderArtist = {L"Nada en reproducción", "Nada en reproducción"},
     .upNext = {L"A continuación", "A continuación"},
+    .artistLabel = {L"Artista", "Artista"},
+    .explicitMark = {L"Explícita", "Explícita"},
+    .trackOfAlbum = {L"Pista {} de {}", "Pista {} de {}"},
+    .latestRelease = {L"Último lanzamiento: {} ({})", "Último lanzamiento: {} ({})"},
     .menuSettings = {L"Ajustes…", "Ajustes…"},
     .menuQuit = {L"Salir", "Salir"},
     .capsLock = {L"Bloq Mayús", "Bloq Mayús"},
@@ -122,6 +131,10 @@ inline constexpr Strings english{
     .placeholderTitle = {L"Spotify", "Spotify"},
     .placeholderArtist = {L"Nothing playing", "Nothing playing"},
     .upNext = {L"Up next", "Up next"},
+    .artistLabel = {L"Artist", "Artist"},
+    .explicitMark = {L"Explicit", "Explicit"},
+    .trackOfAlbum = {L"Track {} of {}", "Track {} of {}"},
+    .latestRelease = {L"Latest release: {} ({})", "Latest release: {} ({})"},
     .menuSettings = {L"Settings…", "Settings…"},
     .menuQuit = {L"Quit", "Quit"},
     .capsLock = {L"Caps Lock", "Caps Lock"},

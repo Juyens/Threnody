@@ -32,6 +32,27 @@ struct TrackLinks {
     std::wstring trackUri;   // spotify:track:...
     std::wstring artistUri;  // spotify:artist:...
     std::wstring artworkUrl;  // Album art, the widget's fallback when SMTC has none.
+
+    // For the song's info bubble.
+    std::wstring artistId;                  // First artist, for requestArtist().
+    std::vector<std::wstring> artistNames;  // All of them.
+    std::wstring albumName;
+    std::wstring releaseDate;  // "2021-05-14", "2021-05" or "2021".
+    std::int64_t durationMs{};
+    bool explicitContent{false};
+    int trackNumber{};
+    int albumTracks{};
+};
+
+// An artist, for their info bubble. Spotify no longer gives followers or
+// popularity (February 2026); genres are often empty.
+struct ArtistInfo {
+    std::wstring id;
+    std::wstring name;
+    std::wstring imageUrl;
+    std::vector<std::wstring> genres;
+    std::wstring latestRelease;      // The newest album or single...
+    std::wstring latestReleaseDate;  // ...and its date.
 };
 
 // The first track in the user's queue: what "next" will play.
@@ -102,6 +123,11 @@ public:
     // returned request number, so a stale answer can be told apart.
     std::uint32_t requestQueue();
     [[nodiscard]] std::optional<QueueResult> queue() const;
+
+    // Fetches an artist and their newest release; the answer appears in
+    // `artist(id)`. Kept for the last few artists asked for.
+    void requestArtist(std::wstring id);
+    [[nodiscard]] std::optional<ArtistInfo> artist(const std::wstring& id) const;
 
     // Downloads `url` (an artworkUrl) unless it is among the few kept; the
     // result appears in `artwork(url)`.
