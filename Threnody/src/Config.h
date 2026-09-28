@@ -184,8 +184,8 @@ inline constexpr float panelHoverTintAlpha = 0.14f;
 inline constexpr float panelBorderTintAlpha = 0.22f;
 inline constexpr float separatorHeightShare = 0.55f;  // Of the widget's height.
 inline constexpr Color separatorColor{1.0f, 1.0f, 1.0f, 0.12f};
-// Song progress: a thin line along the bottom edge, in the cover's colour
-// over a faint track. SMTC reports the position every few seconds; in
+// Song progress: a thin line along the bottom edge, in the beat glow's
+// colour over a faint track. SMTC reports the position every few seconds; in
 // between it runs on the clock. The track sits on a dark base so neither the
 // beat glow along the border nor the hover brightening shows through it and
 // blurs where the progress ends.

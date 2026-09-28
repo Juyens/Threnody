@@ -615,7 +615,9 @@ void WidgetRenderer::drawProgress(const WidgetLayout& layout, const WidgetModel&
     m_target->FillRectangle({0.0f, top, layout.width, layout.height}, m_brush.get());
     fill(config::progressTrackColor);
     m_target->FillRectangle({0.0f, top, layout.width, layout.height}, m_brush.get());
-    fill(model.accent);
+    // The same colour as the beat glow, so it follows the colour mode
+    // (the rainbow sweep, the gradient wave, or the cover's colour).
+    fill(barColor(model, 0));
     m_target->FillRectangle({0.0f, top, layout.width * std::clamp(model.progress, 0.0f, 1.0f), layout.height},
                             m_brush.get());
     m_target->PopLayer();
