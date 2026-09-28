@@ -18,6 +18,7 @@
 #include "util/Log.h"
 #include "util/Text.h"
 
+#include <chrono>
 #include <cmath>
 
 namespace threnody {
@@ -261,6 +262,9 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
                     const media::NowPlaying now = m_media->snapshot();
                     syncShuffle(now.shuffle);
     syncRepeat(now.repeat);
+    m_positionMs = now.positionMs;
+    m_durationMs = now.durationMs;
+    m_positionAtMs = now.positionAtMs;
                     syncRepeat(now.repeat);
                 }
                 refreshVolume();
@@ -670,6 +674,7 @@ void Application::repaintWidget() {
     if (!m_renderer || !m_layout) {
         return;
     }
+    m_model.progress = currentProgress();
 
     const SIZE size{.cx = win32::width(m_widgetRect), .cy = win32::height(m_widgetRect)};
     if (const Result<void> resized = m_surface.resize(size); !resized) {
@@ -1073,6 +1078,22 @@ void Application::forgetUpNext() {
     if (m_peekHoverSince != 0 && m_spotify && m_spotify->connected()) {
         m_queueRequest = m_spotify->requestQueue();
     }
+}
+
+// The track's progress in [0, 1] from SMTC's last timeline report, run
+// forward on the clock while playing; negative without a timeline.
+float Application::currentProgress() const {
+    if (!m_sessionAvailable || m_durationMs <= 0) {
+        return -1.0f;
+    }
+    std::int64_t position = m_positionMs;
+    if (m_model.playing && m_positionAtMs > 0) {
+        const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count();
+        position += std::max<std::int64_t>(0, nowMs - m_positionAtMs);
+    }
+    return std::clamp(static_cast<float>(position) / static_cast<float>(m_durationMs), 0.0f, 1.0f);
 }
 
 void Application::refreshVolume() {

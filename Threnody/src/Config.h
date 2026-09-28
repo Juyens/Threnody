@@ -17,8 +17,8 @@ inline constexpr int widgetEdgeMarginDip = 12;       // Gap to the screen edge o
 // Widget interior, left to right: cover, text, controls, visualiser.
 inline constexpr float widgetPaddingDip = 6.0f;
 inline constexpr float widgetGapDip = 10.0f;
-inline constexpr float backgroundCornerRadiusDip = 6.0f;
-inline constexpr float coverCornerRadiusDip = 4.0f;
+inline constexpr float backgroundCornerRadiusDip = 8.0f;
+inline constexpr float coverCornerRadiusDip = 6.0f;
 inline constexpr float textMaxWidthDip = 170.0f;
 inline constexpr float textLineGapDip = 1.0f;
 inline constexpr float controlButtonWidthDip = 22.0f;
@@ -176,6 +176,19 @@ inline constexpr Color titleColor{1.0f, 1.0f, 1.0f, 0.95f};
 inline constexpr Color artistColor{1.0f, 1.0f, 1.0f, 0.60f};
 inline constexpr Color controlColor{1.0f, 1.0f, 1.0f, 0.90f};
 inline constexpr Color controlDisabledColor{1.0f, 1.0f, 1.0f, 0.35f};
+inline constexpr Color controlOffColor{0.655f, 0.655f, 0.655f, 0.95f};  // A toggle that is off, as Spotify greys it.
+// The panel takes a hint of the cover's colour, its border a little more;
+// a thin rule sets the visualiser apart from the controls.
+inline constexpr float panelTintAlpha = 0.10f;
+inline constexpr float panelHoverTintAlpha = 0.14f;
+inline constexpr float panelBorderTintAlpha = 0.22f;
+inline constexpr float separatorHeightShare = 0.55f;  // Of the widget's height.
+inline constexpr Color separatorColor{1.0f, 1.0f, 1.0f, 0.12f};
+// Song progress: a thin line along the bottom edge, in the cover's colour
+// over a faint track. SMTC reports the position every few seconds; in
+// between it runs on the clock.
+inline constexpr float progressHeightDip = 2.0f;
+inline constexpr Color progressTrackColor{1.0f, 1.0f, 1.0f, 0.10f};
 inline constexpr Color controlActiveColor{0.118f, 0.843f, 0.376f, 1.0f};  // Spotify green, #1ED760.
 inline constexpr Color defaultAccentColor{0.55f, 0.78f, 1.0f, 1.0f};
 

@@ -92,6 +92,7 @@ private:
     void cycleRepeat();
     void syncRepeat(const std::optional<RepeatMode>& reported);
     void refreshVolume();
+    [[nodiscard]] float currentProgress() const;
     void showVolume(const std::optional<audio::VolumeState>& state);
     void onWheel(int delta);
 
@@ -204,6 +205,9 @@ private:
     ULONGLONG m_shuffleHoldUntil{};
     ULONGLONG m_repeatHoldUntil{};
     ULONGLONG m_shuffleClickTick{};
+    std::int64_t m_positionMs{};    // Timeline as SMTC last reported it.
+    std::int64_t m_durationMs{};
+    std::int64_t m_positionAtMs{};
     ULONGLONG m_repeatClickTick{};
     bool m_secondRecheckPending{false};
     unsigned m_playerStateTicks{};

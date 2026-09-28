@@ -41,6 +41,7 @@ struct MediaSession::Shared {
     winrt::event_token sessionsChangedToken{};
     winrt::event_token propertiesChangedToken{};
     winrt::event_token playbackChangedToken{};
+    winrt::event_token timelineChangedToken{};
 
     // Each refresh gets a generation. Spotify raises several property events
     // per track (text first, artwork later), so every refresh publishes as
@@ -94,9 +95,23 @@ void refreshPlayback(const std::shared_ptr<Shared>& shared) {
                 }
             }
         }
+        // The timeline: TimeSpans are 100 ns ticks; DateTime counts 100 ns
+        // ticks from 1601, 11644473600 seconds before the Unix epoch.
+        const auto timeline = session.GetTimelineProperties();
+        const std::int64_t positionMs = timeline.Position().count() / 10000;
+        const std::int64_t durationMs = (timeline.EndTime() - timeline.StartTime()).count() / 10000;
+        const std::int64_t positionAtMs =
+            timeline.LastUpdatedTime().time_since_epoch().count() / 10000 - std::int64_t{11644473600} * 1000;
         bool changed = false;
         {
             std::scoped_lock lock{shared->mutex};
+            NowPlaying& state = shared->state;
+            if (state.positionMs != positionMs || state.durationMs != durationMs || state.positionAtMs != positionAtMs) {
+                state.positionMs = positionMs;
+                state.durationMs = durationMs;
+                state.positionAtMs = positionAtMs;
+                changed = true;
+            }
             if (shared->state.shuffle != shuffle || shared->state.repeat != repeat) {
                 log::info("SMTC modes: shuffle {}, repeat {}", shuffle ? (*shuffle ? "on" : "off") : "n/a",
                           !repeat                     ? "n/a"
@@ -104,7 +119,7 @@ void refreshPlayback(const std::shared_ptr<Shared>& shared) {
                           : *repeat == RepeatMode::All ? "all"
                                                        : "off");
             }
-            changed = shared->state.playing != playing || shared->state.shuffle != shuffle ||
+            changed = changed || shared->state.playing != playing || shared->state.shuffle != shuffle ||
                       shared->state.repeat != repeat;
             shared->state.playing = playing;
             shared->state.shuffle = shuffle;
@@ -264,6 +279,7 @@ void pickSession(const std::shared_ptr<Shared>& shared) {
         if (shared->session) {
             shared->session.MediaPropertiesChanged(shared->propertiesChangedToken);
             shared->session.PlaybackInfoChanged(shared->playbackChangedToken);
+            shared->session.TimelinePropertiesChanged(shared->timelineChangedToken);
         }
         shared->session = chosen;
         changed = true;
@@ -274,6 +290,11 @@ void pickSession(const std::shared_ptr<Shared>& shared) {
                 refreshProperties(weak);
             });
             shared->playbackChangedToken = chosen.PlaybackInfoChanged([weak](const auto&, const auto&) {
+                if (auto s = weak.lock()) {
+                    refreshPlayback(s);
+                }
+            });
+            shared->timelineChangedToken = chosen.TimelinePropertiesChanged([weak](const auto&, const auto&) {
                 if (auto s = weak.lock()) {
                     refreshPlayback(s);
                 }
@@ -383,6 +404,7 @@ MediaSession::~MediaSession() {
     if (m_shared->session) {
         m_shared->session.MediaPropertiesChanged(m_shared->propertiesChangedToken);
         m_shared->session.PlaybackInfoChanged(m_shared->playbackChangedToken);
+        m_shared->session.TimelinePropertiesChanged(m_shared->timelineChangedToken);
         m_shared->session = nullptr;
     }
     if (m_shared->manager) {

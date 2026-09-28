@@ -55,6 +55,9 @@ struct WidgetModel {
     // Beat glow in [0, 1]: jumps to 1 on a kick in the bass, then fades.
     float pulse{};
 
+    // How far the track has played, in [0, 1]; negative when unknown.
+    float progress{-1.0f};
+
     // Pointer feedback: the zone under the pointer, and how far the whole
     // widget has faded toward its hovered look (0 = idle, 1 = hovered).
     std::optional<Zone> hover;

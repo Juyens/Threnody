@@ -530,7 +530,9 @@ Result<void> WidgetRenderer::draw(LayeredSurface& surface, const WidgetModel& mo
     }
     drawText(layout);
     drawControls(layout, model);
+    drawSeparator(layout);
     drawSpectrum(layout, model);
+    drawProgress(layout, model);
 
     const HRESULT hr = m_target->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -557,8 +559,16 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
     fill(model.floating ? mix(config::floatingBackgroundColor, config::floatingHoverBackgroundColor, hover)
                         : mix(config::backgroundColor, config::hoverBackgroundColor, hover));
     m_target->FillRoundedRectangle(shape, m_brush.get());
+    const bool backdrop = model.floating && !model.coverImage.empty();
     if (model.floating) {
         drawBackdrop(layout, model, shape);
+    }
+    // A hint of the cover's colour, where no blurred cover already gives it.
+    const bool tinted = !backdrop && !model.coverImage.empty();
+    if (tinted) {
+        const float alpha = config::panelTintAlpha + (config::panelHoverTintAlpha - config::panelTintAlpha) * hover;
+        fill(model.accent.withAlpha(alpha));
+        m_target->FillRoundedRectangle(shape, m_brush.get());
     }
 
     const D2D1_ROUNDED_RECT border{
@@ -569,6 +579,44 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
     fill(model.floating ? mix(config::floatingBorderColor, config::floatingHoverBorderColor, hover)
                         : mix(config::backgroundBorderColor, config::hoverBorderColor, hover));
     m_target->DrawRoundedRectangle(border, m_brush.get(), 1.0f);
+    if (tinted) {
+        fill(model.accent.withAlpha(config::panelBorderTintAlpha));
+        m_target->DrawRoundedRectangle(border, m_brush.get(), 1.0f);
+    }
+}
+
+// A thin vertical rule between the controls and the visualiser (bar only).
+void WidgetRenderer::drawSeparator(const WidgetLayout& layout) {
+    if (layout.card) {
+        return;
+    }
+    const float x = std::round((layout.repeat.right + layout.visualizer.left) / 2.0f) + 0.5f;
+    const float half = layout.height * config::separatorHeightShare / 2.0f;
+    fill(config::separatorColor);
+    m_target->DrawLine({x, layout.height / 2.0f - half}, {x, layout.height / 2.0f + half}, m_brush.get(), 1.0f);
+}
+
+// The song's progress along the bottom edge, clipped to the panel's corners.
+void WidgetRenderer::drawProgress(const WidgetLayout& layout, const WidgetModel& model) {
+    if (model.progress < 0.0f) {
+        return;
+    }
+    const D2D1_ROUNDED_RECT shape{{0.0f, 0.0f, layout.width, layout.height}, layout.cornerRadius,
+                                  layout.cornerRadius};
+    winrt::com_ptr<ID2D1RoundedRectangleGeometry> clip;
+    if (FAILED(m_graphics.d2d->CreateRoundedRectangleGeometry(shape, clip.put()))) {
+        return;
+    }
+    D2D1_LAYER_PARAMETERS layer = D2D1::LayerParameters();
+    layer.geometricMask = clip.get();
+    m_target->PushLayer(layer, nullptr);
+    const float top = layout.height - config::progressHeightDip;
+    fill(config::progressTrackColor);
+    m_target->FillRectangle({0.0f, top, layout.width, layout.height}, m_brush.get());
+    fill(model.accent);
+    m_target->FillRectangle({0.0f, top, layout.width * std::clamp(model.progress, 0.0f, 1.0f), layout.height},
+                            m_brush.get());
+    m_target->PopLayer();
 }
 
 // The blurred cover under a shade, cross-fading when the cover changes.
@@ -859,7 +907,7 @@ void WidgetRenderer::drawControls(const WidgetLayout& layout, const WidgetModel&
         m_target->FillEllipse(D2D1::Ellipse({x, y}, r, r), m_brush.get());
     };
     const auto stateColor = [](bool available, bool on) {
-        return !available ? config::controlDisabledColor : on ? config::controlActiveColor : config::controlColor;
+        return !available ? config::controlDisabledColor : on ? config::controlActiveColor : config::controlOffColor;
     };
 
     fill(config::controlColor);

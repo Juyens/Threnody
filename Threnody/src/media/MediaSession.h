@@ -24,6 +24,13 @@ struct NowPlaying {
     std::vector<std::uint8_t> cover;  // Encoded image bytes, empty if none.
     std::uint32_t coverVersion{};     // Bumps whenever `cover` changes.
     bool coverPending{false};         // Text belongs to a new track; `cover` is still the old one.
+
+    // Where the track was at `positionAt` (Unix milliseconds): the session
+    // updates it every few seconds, so callers add the time since while
+    // playing. Durations of zero mean the session reports no timeline.
+    std::int64_t positionMs{};
+    std::int64_t durationMs{};
+    std::int64_t positionAtMs{};
 };
 
 enum class TransportCommand { Previous, TogglePlayPause, Next };

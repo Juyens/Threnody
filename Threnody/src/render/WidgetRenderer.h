@@ -89,6 +89,8 @@ private:
     void drawHoverHighlight(const WidgetLayout& layout, const WidgetModel& model);
     void drawBackdrop(const WidgetLayout& layout, const WidgetModel& model, const D2D1_ROUNDED_RECT& shape);
     void drawPulse(const WidgetLayout& layout, const WidgetModel& model);
+    void drawSeparator(const WidgetLayout& layout);
+    void drawProgress(const WidgetLayout& layout, const WidgetModel& model);
     void drawCover(const WidgetLayout& layout, const WidgetModel& model);
     void drawCoverFace(const std::optional<Cover>& face, const D2D1_ROUNDED_RECT& shape);
     void drawCardVolume(const WidgetLayout& layout, const WidgetModel& model);
