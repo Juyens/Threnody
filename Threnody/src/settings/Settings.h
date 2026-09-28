@@ -27,6 +27,7 @@ struct Settings {
     bool startWithWindows{false};
     LockKeyOverlay lockKeys;
     ColorMode colorMode{ColorMode::Track};
+    bool beatPulse{true};  // The border glows on kicks.
 
     // Dragged out of the taskbar: floats with its top-left corner here, in
     // screen pixels.

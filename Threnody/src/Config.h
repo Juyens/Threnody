@@ -311,7 +311,7 @@ inline constexpr float smartShuffleSparkleShare = 0.48f;
 
 // Settings window (Dear ImGui), client area in DIPs.
 inline constexpr int settingsWindowWidthDip = 460;
-inline constexpr int settingsWindowHeightDip = 740;
+inline constexpr int settingsWindowHeightDip = 772;
 inline constexpr int settingsLogPanelWidthDip = 640;  // Added to the right when the live log is shown.
 inline constexpr wchar_t settingsMonoFontFile[] = L"CascadiaMono.ttf";
 inline constexpr wchar_t settingsMonoFontFallback[] = L"consola.ttf";

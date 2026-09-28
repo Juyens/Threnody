@@ -50,6 +50,7 @@ struct Strings {
     Text modeTrack;
     Text modeRainbow;
     Text modeGradient;
+    Text beatPulse;
     Text sectionSpotify;
     Text spotifyExplanation;
     Text spotifyConnected;
@@ -103,6 +104,8 @@ inline constexpr Strings spanish{
     .modeTrack = {L"Color de la canción", "Color de la canción"},
     .modeRainbow = {L"Arcoíris", "Arcoíris"},
     .modeGradient = {L"Degradado de la canción", "Degradado de la canción"},
+    .beatPulse = {L"Pulso con el ritmo (el borde brilla con los golpes)",
+                  "Pulso con el ritmo (el borde brilla con los golpes)"},
     .sectionSpotify = {L"SPOTIFY", "SPOTIFY"},
     .spotifyExplanation = {L"", "Sin conexión, el título y el artista abren una búsqueda en Spotify. Conectado, abren la canción y el artista exactos."},
     .spotifyConnected = {L"Estado: conectado", "Estado: conectado"},
@@ -154,6 +157,7 @@ inline constexpr Strings english{
     .modeTrack = {L"Track colour", "Track colour"},
     .modeRainbow = {L"Rainbow", "Rainbow"},
     .modeGradient = {L"Track gradient", "Track gradient"},
+    .beatPulse = {L"Beat pulse (the border glows on kicks)", "Beat pulse (the border glows on kicks)"},
     .sectionSpotify = {L"SPOTIFY", "SPOTIFY"},
     .spotifyExplanation = {L"", "Without a connection, the title and artist open a Spotify search. Connected, they open the exact track and artist."},
     .spotifyConnected = {L"Status: connected", "Status: connected"},

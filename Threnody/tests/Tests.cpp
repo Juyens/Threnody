@@ -228,6 +228,7 @@ void testSettingsRoundTrip() {
     original.startWithWindows = true;
     original.lockKeys.numLock = false;
     original.colorMode = ColorMode::Rainbow;
+    original.beatPulse = false;
     original.floating = true;
     original.floatingX = -1200;
     original.floatingY = 340;

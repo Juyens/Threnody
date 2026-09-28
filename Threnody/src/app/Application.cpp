@@ -1430,6 +1430,12 @@ void Application::applySettings(const settings::Settings& updated) {
     if (previous.language != updated.language) {
         applyLanguage();
     }
+    if (previous.beatPulse != updated.beatPulse) {
+        log::info("beat pulse: {}", updated.beatPulse ? "on" : "off");
+        m_beat.reset();
+        m_model.pulse = 0.0f;
+        repaintWidget();
+    }
     if (previous.startWithWindows != updated.startWithWindows) {
         if (const Result<void> set = shell::setStartWithWindows(updated.startWithWindows); set) {
             log::info("start with Windows: {}", updated.startWithWindows ? "on" : "off");
@@ -1742,7 +1748,9 @@ void Application::onSpectrumFrame() {
         m_analyzer.decay();
     }
     m_model.spectrum = m_analyzer.bands();
-    m_model.pulse = m_beat.update(m_analyzer.kickDb(), static_cast<float>(config::spectrumFrameMs));
+    m_model.pulse = m_settings.beatPulse
+                        ? m_beat.update(m_analyzer.kickDb(), static_cast<float>(config::spectrumFrameMs))
+                        : 0.0f;
 
     if (m_model.colorMode != ColorMode::Track) {
         const float step = static_cast<float>(config::spectrumFrameMs) / (1000.0f * config::rainbowCycleSeconds);
