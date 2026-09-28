@@ -611,6 +611,8 @@ void WidgetRenderer::drawProgress(const WidgetLayout& layout, const WidgetModel&
     layer.geometricMask = clip.get();
     m_target->PushLayer(layer, nullptr);
     const float top = layout.height - config::progressHeightDip;
+    fill(config::progressBaseColor);
+    m_target->FillRectangle({0.0f, top, layout.width, layout.height}, m_brush.get());
     fill(config::progressTrackColor);
     m_target->FillRectangle({0.0f, top, layout.width, layout.height}, m_brush.get());
     fill(model.accent);

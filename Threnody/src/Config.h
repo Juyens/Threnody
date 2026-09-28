@@ -186,9 +186,12 @@ inline constexpr float separatorHeightShare = 0.55f;  // Of the widget's height.
 inline constexpr Color separatorColor{1.0f, 1.0f, 1.0f, 0.12f};
 // Song progress: a thin line along the bottom edge, in the cover's colour
 // over a faint track. SMTC reports the position every few seconds; in
-// between it runs on the clock.
+// between it runs on the clock. The track sits on a dark base so neither the
+// beat glow along the border nor the hover brightening shows through it and
+// blurs where the progress ends.
 inline constexpr float progressHeightDip = 2.0f;
-inline constexpr Color progressTrackColor{1.0f, 1.0f, 1.0f, 0.10f};
+inline constexpr Color progressBaseColor{0.0f, 0.0f, 0.0f, 0.55f};
+inline constexpr Color progressTrackColor{1.0f, 1.0f, 1.0f, 0.12f};
 inline constexpr Color controlActiveColor{0.118f, 0.843f, 0.376f, 1.0f};  // Spotify green, #1ED760.
 inline constexpr Color defaultAccentColor{0.55f, 0.78f, 1.0f, 1.0f};
 
