@@ -37,6 +37,9 @@ json toJson(const Settings& s) {
         {"colorMode", colorModeName(s.colorMode)},
         {"beatPulse", s.beatPulse},
         {"vinylCard", s.vinylCard},
+        {"visualizerStyle", visualizerStyleName(s.visualizerStyle)},
+        {"vinylRing", s.vinylRing},
+        {"wavyProgress", s.wavyProgress},
         {"widget",
          {
              {"floating", s.floating},
@@ -67,6 +70,10 @@ Settings fromJson(const json& j) {
     s.colorMode = colorModeFromName(j.value("colorMode", std::string{colorModeName(s.colorMode)}));
     s.beatPulse = j.value("beatPulse", s.beatPulse);
     s.vinylCard = j.value("vinylCard", s.vinylCard);
+    s.visualizerStyle = visualizerStyleFromName(
+        j.value("visualizerStyle", std::string{visualizerStyleName(s.visualizerStyle)}));
+    s.vinylRing = j.value("vinylRing", s.vinylRing);
+    s.wavyProgress = j.value("wavyProgress", s.wavyProgress);
     if (const auto widget = j.find("widget"); widget != j.end() && widget->is_object()) {
         s.floating = widget->value("floating", s.floating);
         s.floatingX = widget->value("x", s.floatingX);

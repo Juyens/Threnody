@@ -59,6 +59,8 @@ public:
     // every move and once more, with `done`, when the button comes up.
     void onPress(std::function<bool(POINT position)> handler) { m_onPress = std::move(handler); }
     void onScrub(std::function<void(POINT position, bool done)> handler) { m_onScrub = std::move(handler); }
+    // Fired when the right button comes up over the widget (not mid-drag).
+    void onContextMenu(ClickHandler handler) { m_onContextMenu = std::move(handler); }
 
     [[nodiscard]] HWND hwnd() const noexcept { return m_hwnd.get(); }
 
@@ -77,6 +79,7 @@ private:
     std::function<void(UINT edges)> m_onResizeStart;
     std::function<bool(POINT position)> m_onPress;
     std::function<void(POINT position, bool done)> m_onScrub;
+    ClickHandler m_onContextMenu;
     bool m_scrubbing{false};
     POINT m_lastScrub{};
     bool m_hovering{false};

@@ -5,6 +5,7 @@
 #include "color/ColorMode.h"
 #include "media/RepeatMode.h"
 
+#include "render/VisualizerStyle.h"
 #include "render/WidgetLayout.h"
 
 #include <array>
@@ -45,6 +46,11 @@ struct WidgetModel {
 
     // Bar heights in [0, 1], bass to treble.
     std::array<float, config::spectrumBarCount> spectrum{};
+    // The audio's recent waveform in [-1, 1], for the Wave style.
+    std::array<float, config::waveformPoints> waveform{};
+    VisualizerStyle visualizerStyle{VisualizerStyle::Bars};
+    bool vinylRing{false};     // The spectrum as rays around the card's record.
+    bool wavyProgress{false};  // The played part of the progress line ripples.
 
     // Track mode paints every bar with `accent` (extracted from the cover);
     // rainbow mode sweeps the hue across the bars, offset by `rainbowPhase`

@@ -259,6 +259,18 @@ LRESULT WidgetWindow::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
             return 0;
         }
 
+        // Right-clicks stay here: passed on, the default handling would hand
+        // them to the taskbar.
+        case WM_RBUTTONDOWN:
+        case WM_CONTEXTMENU:
+            return 0;
+
+        case WM_RBUTTONUP:
+            if (!m_scrubbing && !m_press && m_onContextMenu) {
+                m_onContextMenu(POINT{.x = GET_X_LPARAM(lParam), .y = GET_Y_LPARAM(lParam)});
+            }
+            return 0;
+
         case WM_CAPTURECHANGED:
             m_press.reset();
             if (m_scrubbing) {  // Capture taken away mid-scrub: finish where it was.

@@ -2,6 +2,7 @@
 
 #include "color/ColorMode.h"
 #include "i18n/Strings.h"
+#include "render/VisualizerStyle.h"
 #include "util/Result.h"
 
 #include <filesystem>
@@ -29,6 +30,9 @@ struct Settings {
     ColorMode colorMode{ColorMode::Track};
     bool beatPulse{true};  // The border glows on kicks.
     bool vinylCard{true};  // The card's cover spins like a record.
+    VisualizerStyle visualizerStyle{VisualizerStyle::Bars};
+    bool vinylRing{true};     // The spectrum as rays around the card's record.
+    bool wavyProgress{true};  // The played part of the progress line ripples.
 
     // Dragged out of the taskbar: floats with its top-left corner here, in
     // screen pixels.

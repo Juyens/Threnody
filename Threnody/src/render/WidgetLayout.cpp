@@ -7,16 +7,17 @@
 namespace threnody::render {
 
 WidgetLayout WidgetLayout::compute(float height, float titleWidth, float titleHeight, float artistWidth,
-                                   float artistHeight) noexcept {
+                                   float artistHeight, bool visualizer) noexcept {
     using namespace config;
 
     const float coverSize = height - 2.0f * widgetPaddingDip;
     const float controlsWidth = 5.0f * controlButtonWidthDip;
     const float visualizerWidth =
-        spectrumBarCount * spectrumBarWidthDip + (spectrumBarCount - 1) * spectrumBarGapDip;
+        visualizer ? spectrumBarCount * spectrumBarWidthDip + (spectrumBarCount - 1) * spectrumBarGapDip : 0.0f;
+    const float gaps = visualizer ? 3.0f : 2.0f;
 
     float textWidth = std::clamp(std::max(titleWidth, artistWidth), 0.0f, textMaxWidthDip);
-    const float fixedWidth = 2.0f * widgetPaddingDip + coverSize + 3.0f * widgetGapDip + controlsWidth + visualizerWidth;
+    const float fixedWidth = 2.0f * widgetPaddingDip + coverSize + gaps * widgetGapDip + controlsWidth + visualizerWidth;
     textWidth = std::min(textWidth, static_cast<float>(widgetMaxWidthDip) - fixedWidth);
     textWidth = std::max(textWidth, 0.0f);
 
@@ -45,7 +46,7 @@ WidgetLayout WidgetLayout::compute(float height, float titleWidth, float titleHe
     layout.next = {x, 0.0f, x + controlButtonWidthDip, height};
     x += controlButtonWidthDip;
     layout.repeat = {x, 0.0f, x + controlButtonWidthDip, height};
-    x += controlButtonWidthDip + widgetGapDip;
+    x += controlButtonWidthDip + (visualizer ? widgetGapDip : 0.0f);
 
     layout.visualizer = {x, widgetPaddingDip, x + visualizerWidth, height - widgetPaddingDip};
     layout.progress = {0.0f, height - progressHitDip, layout.width, height};

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <utility>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -437,26 +438,61 @@ void SettingsWindow::drawSettingsColumn() {
     ImGui::Dummy(ImVec2{0, 2});
 
     sectionLabel(S.sectionVisualiser.utf8);
-    int mode = static_cast<int>(m_settings.colorMode);
-    if (ImGui::RadioButton(S.modeTrack.utf8, &mode, static_cast<int>(ColorMode::Track))) {
-        m_settings.colorMode = ColorMode::Track;
-        changed();
-    }
-    ImGui::SameLine(0, 24);
-    if (ImGui::RadioButton(S.modeRainbow.utf8, &mode, static_cast<int>(ColorMode::Rainbow))) {
-        m_settings.colorMode = ColorMode::Rainbow;
-        changed();
-    }
-    ImGui::SameLine(0, 24);
-    if (ImGui::RadioButton(S.modeGradient.utf8, &mode, static_cast<int>(ColorMode::TrackGradient))) {
-        m_settings.colorMode = ColorMode::TrackGradient;
-        changed();
-    }
-    if (ImGui::Checkbox(S.beatPulse.utf8, &m_settings.beatPulse)) {
-        changed();
-    }
-    if (ImGui::Checkbox(S.vinylCard.utf8, &m_settings.vinylCard)) {
-        changed();
+    {
+        // Style and colour side by side, then the effects in two columns.
+        const float scale = static_cast<float>(m_dpi) / 96.0f;
+        const std::pair<VisualizerStyle, const i18n::Text*> styles[] = {
+            {VisualizerStyle::Bars, &S.styleBars},   {VisualizerStyle::Mirror, &S.styleMirror},
+            {VisualizerStyle::Curve, &S.styleCurve}, {VisualizerStyle::Wave, &S.styleWave},
+            {VisualizerStyle::Led, &S.styleLed},     {VisualizerStyle::None, &S.styleNone},
+        };
+        const std::pair<ColorMode, const i18n::Text*> modes[] = {
+            {ColorMode::Track, &S.modeTrack},
+            {ColorMode::Rainbow, &S.modeRainbow},
+            {ColorMode::TrackGradient, &S.modeGradient},
+        };
+        const auto combo = [&](const char* id, auto& current, const auto& options, float width) {
+            const char* preview = "";
+            for (const auto& [value, text] : options) {
+                if (value == current) {
+                    preview = text->utf8;
+                }
+            }
+            ImGui::SetNextItemWidth(width);
+            if (ImGui::BeginCombo(id, preview)) {
+                for (const auto& [value, text] : options) {
+                    if (ImGui::Selectable(text->utf8, value == current) && value != current) {
+                        current = value;
+                        changed();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        };
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(S.visualizerStyle.utf8);
+        ImGui::SameLine();
+        combo("##style", m_settings.visualizerStyle, styles, 120.0f * scale);
+        ImGui::SameLine(0, 20.0f * scale);
+        ImGui::TextUnformatted(S.colorLabel.utf8);
+        ImGui::SameLine();
+        combo("##colour", m_settings.colorMode, modes, -FLT_MIN);
+
+        const float column = 200.0f * scale;
+        if (ImGui::Checkbox(S.beatPulse.utf8, &m_settings.beatPulse)) {
+            changed();
+        }
+        ImGui::SameLine(column);
+        if (ImGui::Checkbox(S.wavyProgress.utf8, &m_settings.wavyProgress)) {
+            changed();
+        }
+        if (ImGui::Checkbox(S.vinylCard.utf8, &m_settings.vinylCard)) {
+            changed();
+        }
+        ImGui::SameLine(column);
+        if (ImGui::Checkbox(S.vinylRing.utf8, &m_settings.vinylRing)) {
+            changed();
+        }
     }
     ImGui::Dummy(ImVec2{0, 2});
     ImGui::Separator();

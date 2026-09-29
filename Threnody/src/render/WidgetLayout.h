@@ -44,8 +44,10 @@ struct WidgetLayout {
     // `titleWidth`/`artistWidth` are the natural widths of the text; they are
     // clamped to the configured maximum, and the overall width to the widget
     // maximum, with the text column absorbing the difference.
+    // Without `visualizer` its zone is empty and the widget that much
+    // narrower.
     [[nodiscard]] static WidgetLayout compute(float height, float titleWidth, float titleHeight, float artistWidth,
-                                              float artistHeight) noexcept;
+                                              float artistHeight, bool visualizer = true) noexcept;
 
     // The card, always cardWidthDip wide: the cover across the top, then
     // title and artist, then the controls spread across. No visualiser (its

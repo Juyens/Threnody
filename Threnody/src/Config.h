@@ -45,6 +45,47 @@ inline constexpr float spectrumAttack = 0.65f;
 inline constexpr float spectrumRelease = 0.86f;
 inline constexpr unsigned spectrumFrameMs = 33;  // ~30 fps
 
+// Wave style: the waveform in this many points across the visualiser (see
+// dsp::Oscilloscope). The scale follows the loudest recent point, falling
+// by waveformPeakFall a frame; each frame moves the line waveformSmoothing
+// of the way to the new shape, and silence flattens it by waveformDecay.
+inline constexpr int waveformPoints = 48;
+inline constexpr float waveformPeakFall = 0.97f;
+inline constexpr float waveformMinPeak = 0.01f;
+inline constexpr float waveformSmoothing = 0.6f;
+inline constexpr float waveformDecay = 0.8f;
+inline constexpr float waveformStrokeDip = 1.6f;
+
+// Curve style: the line over the filled area, and how opaque the area is.
+inline constexpr float curveStrokeDip = 1.6f;
+inline constexpr float curveFillAlpha = 0.35f;
+
+// Retro LED style: segments stacked in each column, the unlit ones faintly
+// shown; the highest level reached lingers as a peak segment, then falls.
+inline constexpr float ledSegmentDip = 2.0f;
+inline constexpr float ledGapDip = 1.0f;
+inline constexpr float ledUnlitAlpha = 0.14f;
+inline constexpr float ledPeakHoldMs = 400.0f;
+inline constexpr float ledPeakFallPerSecond = 1.2f;  // Share of the column height.
+
+// Spectrum on the vinyl: with it the record shrinks to vinylRingDiscShare of
+// the cover square and the bands stand around it as rays, bass at the
+// bottom and treble at the top, mirrored left and right.
+inline constexpr float vinylRingDiscShare = 0.86f;
+inline constexpr int vinylRingRays = 96;
+inline constexpr float vinylRingRayDip = 2.6f;  // Stroke width.
+inline constexpr float vinylRingGapDip = 3.0f;  // Between the rim and the rays.
+
+// Wavy progress line: while playing, the played part of the line ripples
+// (a sine travelling along it, taller with louder music); on pause it
+// settles flat. Amplitude and wavelength for the bar, then for the card.
+inline constexpr float progressWaveAmplitudeDip = 1.2f;
+inline constexpr float progressWaveLengthDip = 9.0f;
+inline constexpr float cardProgressWaveAmplitudeDip = 1.8f;
+inline constexpr float cardProgressWaveLengthDip = 12.0f;
+inline constexpr float progressWaveCyclesPerSecond = 1.4f;
+inline constexpr float progressWaveSettleSeconds = 0.4f;
+
 // Rainbow colour mode, in OKLCH so every bar looks equally bright: how much
 // of the hue circle (degrees) the thirteen bars span at once, how fast the
 // sweep travels (full cycle in this many seconds), and the shared lightness
@@ -118,6 +159,8 @@ inline constexpr float cardControlsHeightDip = 40.0f;
 inline constexpr float cardControlMaxWidthDip = 56.0f;
 inline constexpr float cardControlScale = 1.5f;  // Icons, relative to the bar's.
 inline constexpr float resizeEdgeDip = 7.0f;
+// "Take out of the taskbar" from the menu: the widget floats this far above it.
+inline constexpr int undockLiftDip = 12;
 
 // Vinyl mode (card only, optional): the cover becomes the label of a record
 // that turns at 33 1/3 rpm while playing, speeding up and running down like

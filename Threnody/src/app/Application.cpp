@@ -3,10 +3,12 @@
 #include "Config.h"
 #include "color/DominantColor.h"
 #include "render/CoverSampler.h"
+#include "shell/Clipboard.h"
 #include "shell/Fullscreen.h"
 #include "shell/SpotifyLinks.h"
 #include "shell/SpotifyProcess.h"
 #include "shell/Startup.h"
+#include "tray/PopupMenu.h"
 #include "util/Dpapi.h"
 
 #include "Resource.h"
@@ -45,6 +47,7 @@ constexpr UINT WM_THRENODY_SPOTIFY = WM_APP + 5;
 constexpr UINT WM_THRENODY_DRAG = WM_APP + 6;   // wParam, lParam: grab point in the widget
 constexpr UINT WM_THRENODY_WHEEL = WM_APP + 7;  // wParam: wheel delta (signed)
 constexpr UINT WM_THRENODY_RESIZE = WM_APP + 8;  // wParam: WidgetWindow::Edge mask
+constexpr UINT WM_THRENODY_MENU = WM_APP + 9;    // wParam, lParam: right-click point in the widget
 
 // Shifts `rect` fully onto the work area of the monitor it is (mostly) on,
 // so a floating widget can never be left off-screen.
@@ -68,6 +71,29 @@ bool equalsIgnoreCase(std::wstring_view a, std::wstring_view b) noexcept {
 
 constexpr UINT menuSettingsId = 1;
 constexpr UINT menuQuitId = 2;
+// The widget's menu. Styles and colour modes take a range each, offset by
+// their position in visualizerStyles and the ColorMode enum.
+constexpr UINT menuOpenTrackId = 100;
+constexpr UINT menuCopyTrackLinkId = 101;
+constexpr UINT menuCopyTitleId = 102;
+constexpr UINT menuOpenArtistId = 103;
+constexpr UINT menuCopyArtistLinkId = 104;
+constexpr UINT menuShuffleOffId = 110;
+constexpr UINT menuShuffleOnId = 111;
+constexpr UINT menuSmartShuffleId = 112;
+constexpr UINT menuRepeatOffId = 120;
+constexpr UINT menuRepeatAllId = 121;
+constexpr UINT menuRepeatOneId = 122;
+constexpr UINT menuRestartId = 130;
+constexpr UINT menuStyleFirstId = 200;
+constexpr UINT menuColorFirstId = 220;
+constexpr UINT menuBeatPulseId = 300;
+constexpr UINT menuWavyProgressId = 301;
+constexpr UINT menuVinylId = 302;
+constexpr UINT menuVinylRingId = 303;
+constexpr UINT menuUndockId = 310;
+constexpr UINT menuCardViewId = 311;
+constexpr UINT menuDockId = 312;
 
 constexpr const char* alignmentName(taskbar::Alignment alignment) noexcept {
     return alignment == taskbar::Alignment::Left ? "left" : "center";
@@ -116,6 +142,9 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
     m_model.colorMode = m_settings.colorMode;
     m_model.floating = m_settings.floating;
     m_model.vinyl = m_settings.vinylCard;
+    m_model.visualizerStyle = m_settings.visualizerStyle;
+    m_model.vinylRing = m_settings.vinylRing;
+    m_model.wavyProgress = m_settings.wavyProgress;
 
     if (Result<std::unique_ptr<overlay::LockKeyOverlay>> lockOverlay = overlay::LockKeyOverlay::create(instance);
         lockOverlay) {
@@ -153,6 +182,10 @@ Application::Application(HINSTANCE instance, std::filesystem::path dataDirectory
         m_model.seeking = true;
         m_model.seekPreview = fraction;
         repaintWidget();
+    });
+    // Posted: some choices in the menu recreate the widget's window.
+    m_widget.onContextMenu([messageWindow](POINT at) {
+        PostMessageW(messageWindow, WM_THRENODY_MENU, static_cast<WPARAM>(at.x), static_cast<LPARAM>(at.y));
     });
     m_widget.onResizeStart([messageWindow](UINT edges) {
         PostMessageW(messageWindow, WM_THRENODY_RESIZE, static_cast<WPARAM>(edges), 0);
@@ -344,6 +377,10 @@ LRESULT Application::handle(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             beginDrag(POINT{.x = static_cast<LONG>(wParam), .y = static_cast<LONG>(lParam)});
             return 0;
 
+        case WM_THRENODY_MENU:
+            showWidgetMenu(POINT{.x = static_cast<LONG>(wParam), .y = static_cast<LONG>(lParam)});
+            return 0;
+
         case WM_THRENODY_MEDIA_CHANGED:
             onMediaChanged();
             return 0;
@@ -503,6 +540,14 @@ void Application::syncFloating() {
         GetWindowRect(m_widget.hwnd(), &current);
     }
     placeFloating(keepOnScreen({current.left, current.top, current.left + size.cx, current.top + size.cy}));
+}
+
+void Application::relayoutWidget() {
+    if (m_model.floating) {
+        syncFloating();
+    } else {
+        syncWithTaskbar(true);
+    }
 }
 
 void Application::placeFloating(const RECT& rect) {
@@ -971,17 +1016,20 @@ void Application::syncSmartShuffle() {
 
 // Off, all, one, off: Spotify's own order.
 void Application::cycleRepeat() {
-    if (!m_model.repeat) {
-        return;  // Spotify offers no repeat control right now.
+    if (!m_model.repeat || GetTickCount64() - m_repeatClickTick < config::toggleDebounceMs) {
+        return;  // Spotify offers no repeat control right now, or a double click.
     }
-    const ULONGLONG now = GetTickCount64();
-    if (now - m_repeatClickTick < config::toggleDebounceMs) {
+    setRepeat(nextRepeatMode(*m_model.repeat));
+}
+
+void Application::setRepeat(RepeatMode mode) {
+    if (!m_model.repeat || *m_model.repeat == mode) {
         return;
     }
+    const ULONGLONG now = GetTickCount64();
     m_repeatClickTick = now;
-    const RepeatMode next = nextRepeatMode(*m_model.repeat);
-    m_media->setRepeat(next);
-    m_model.repeat = next;
+    m_media->setRepeat(mode);
+    m_model.repeat = mode;
     m_repeatHoldUntil = now + config::toggleConfirmHoldMs;
     repaintWidget();
 }
@@ -1376,6 +1424,241 @@ void Application::toggleColorMode() {
     repaintWidget();
 }
 
+void Application::showWidgetMenu(POINT client) {
+    if (!m_layout || !m_widget.hwnd() || m_drag) {
+        return;
+    }
+    const interaction::Zone zone = interaction::hitTest(m_widgetLayout, pixelsToDip(client.x, m_widgetDpi),
+                                                        pixelsToDip(client.y, m_widgetDpi));
+    pointBubble(std::nullopt);
+    const i18n::Strings& text = strings();
+    using tray::MenuEntry;
+    const bool exact = linksMatchCurrentTrack();
+    std::vector<MenuEntry> menu;
+    const auto separate = [&menu] {
+        if (!menu.empty() && menu.back().text) {
+            menu.emplace_back();
+        }
+    };
+
+    std::vector<MenuEntry> styles;
+    const i18n::Text* styleNames[] = {&text.styleBars, &text.styleMirror, &text.styleCurve,
+                                      &text.styleWave, &text.styleLed,    &text.styleNone};
+    for (std::size_t i = 0; i < std::size(visualizerStyles); ++i) {
+        styles.push_back({.id = menuStyleFirstId + static_cast<UINT>(i),
+                          .text = styleNames[i]->wide,
+                          .checked = m_settings.visualizerStyle == visualizerStyles[i],
+                          .radio = true});
+    }
+    std::vector<MenuEntry> colours;
+    const std::pair<ColorMode, const i18n::Text*> modes[] = {
+        {ColorMode::Track, &text.modeTrack}, {ColorMode::Rainbow, &text.modeRainbow},
+        {ColorMode::TrackGradient, &text.modeGradient}};
+    for (const auto& [mode, name] : modes) {
+        colours.push_back({.id = menuColorFirstId + static_cast<UINT>(mode),
+                           .text = name->wide,
+                           .checked = m_settings.colorMode == mode,
+                           .radio = true});
+    }
+
+    // What belongs to the part under the pointer.
+    switch (zone) {
+        case interaction::Zone::Cover:
+        case interaction::Zone::Title:
+            menu.push_back({.id = menuOpenTrackId, .text = text.menuOpenTrack.wide, .enabled = m_sessionAvailable});
+            menu.push_back({.id = menuCopyTrackLinkId,
+                            .text = text.menuCopyTrackLink.wide,
+                            .enabled = exact && !m_links->trackUri.empty()});
+            if (zone == interaction::Zone::Title) {
+                menu.push_back(
+                    {.id = menuCopyTitleId, .text = text.menuCopyTitle.wide, .enabled = m_sessionAvailable});
+            }
+            break;
+        case interaction::Zone::Artist:
+            menu.push_back({.id = menuOpenArtistId, .text = text.menuOpenArtist.wide, .enabled = m_sessionAvailable});
+            menu.push_back({.id = menuCopyArtistLinkId,
+                            .text = text.menuCopyArtistLink.wide,
+                            .enabled = exact && !m_links->artistUri.empty()});
+            break;
+        case interaction::Zone::Shuffle:
+            if (m_model.shuffle) {
+                menu.push_back({.id = menuShuffleOffId, .text = text.menuShuffleOff.wide, .checked = !*m_model.shuffle,
+                                .radio = true});
+                menu.push_back({.id = menuShuffleOnId, .text = text.menuShuffleOn.wide,
+                                .checked = *m_model.shuffle && !m_model.smartShuffle, .radio = true});
+                // Neither SMTC nor the Web API can switch it on.
+                menu.push_back({.id = menuSmartShuffleId, .text = text.menuSmartShuffle.wide,
+                                .checked = *m_model.shuffle && m_model.smartShuffle, .radio = true, .enabled = false});
+            }
+            break;
+        case interaction::Zone::Repeat:
+            if (m_model.repeat) {
+                menu.push_back({.id = menuRepeatOffId, .text = text.menuRepeatOff.wide,
+                                .checked = *m_model.repeat == RepeatMode::Off, .radio = true});
+                menu.push_back({.id = menuRepeatAllId, .text = text.menuRepeatAll.wide,
+                                .checked = *m_model.repeat == RepeatMode::All, .radio = true});
+                menu.push_back({.id = menuRepeatOneId, .text = text.menuRepeatOne.wide,
+                                .checked = *m_model.repeat == RepeatMode::One, .radio = true});
+            }
+            break;
+        case interaction::Zone::Progress:
+            menu.push_back({.id = menuRestartId, .text = text.menuRestart.wide, .enabled = m_model.progress >= 0.0f});
+            break;
+        case interaction::Zone::Visualizer:
+            menu = styles;  // Right there, not in a submenu.
+            break;
+        default:
+            break;
+    }
+
+    // The looks, then where the widget lives.
+    separate();
+    if (zone != interaction::Zone::Visualizer) {
+        menu.push_back({.text = text.menuVisualizer.wide, .children = styles});
+    }
+    menu.push_back({.text = text.menuColors.wide, .children = colours});
+    menu.push_back({.text = text.menuEffects.wide,
+                    .children = {
+                        {.id = menuBeatPulseId, .text = text.beatPulse.wide, .checked = m_settings.beatPulse},
+                        {.id = menuWavyProgressId, .text = text.wavyProgress.wide, .checked = m_settings.wavyProgress},
+                        {.id = menuVinylId, .text = text.vinylCard.wide, .checked = m_settings.vinylCard},
+                        {.id = menuVinylRingId, .text = text.vinylRing.wide, .checked = m_settings.vinylRing,
+                         .enabled = m_settings.vinylCard},
+                    }});
+    separate();
+    if (m_model.floating) {
+        menu.push_back({.id = menuCardViewId, .text = text.menuCardView.wide, .checked = m_settings.card});
+        menu.push_back({.id = menuDockId, .text = text.menuDock.wide});
+    } else {
+        menu.push_back({.id = menuUndockId, .text = text.menuUndock.wide});
+    }
+    separate();
+    menu.push_back({.id = menuSettingsId, .text = text.menuSettings.wide});
+
+    POINT screen = client;
+    ClientToScreen(m_widget.hwnd(), &screen);
+    const UINT chosen = tray::showPopupMenu(m_messageWindow.get(), menu, screen, !m_model.floating);
+    if (chosen != 0) {
+        runMenuCommand(chosen);
+    }
+}
+
+void Application::runMenuCommand(UINT id) {
+    const bool exact = linksMatchCurrentTrack();
+    const auto copy = [this](const std::wstring& value) {
+        if (!value.empty() && shell::copyText(m_messageWindow.get(), value)) {
+            log::info("copied to the clipboard");
+        }
+    };
+    if (id >= menuStyleFirstId && id < menuStyleFirstId + std::size(visualizerStyles)) {
+        changeSettings([id](settings::Settings& s) { s.visualizerStyle = visualizerStyles[id - menuStyleFirstId]; });
+        return;
+    }
+    if (id >= menuColorFirstId && id <= menuColorFirstId + static_cast<UINT>(ColorMode::TrackGradient)) {
+        changeSettings([id](settings::Settings& s) { s.colorMode = static_cast<ColorMode>(id - menuColorFirstId); });
+        return;
+    }
+    switch (id) {
+        case menuOpenTrackId: openTrackOrArtist(false); break;
+        case menuOpenArtistId: openTrackOrArtist(true); break;
+        case menuCopyTrackLinkId:
+            if (exact) {
+                copy(shell::spotifyWebUrl(m_links->trackUri));
+            }
+            break;
+        case menuCopyArtistLinkId:
+            if (exact) {
+                copy(shell::spotifyWebUrl(m_links->artistUri));
+            }
+            break;
+        case menuCopyTitleId:
+            copy(m_model.artist.empty() ? m_model.title : m_model.title + L" \u2014 " + m_model.artist);
+            break;
+        case menuShuffleOffId:
+            if (m_model.shuffle && *m_model.shuffle) {
+                toggleShuffle();
+            }
+            break;
+        case menuShuffleOnId:
+            if (m_model.shuffle && !*m_model.shuffle) {
+                toggleShuffle();
+            }
+            break;
+        case menuRepeatOffId: setRepeat(RepeatMode::Off); break;
+        case menuRepeatAllId: setRepeat(RepeatMode::All); break;
+        case menuRepeatOneId: setRepeat(RepeatMode::One); break;
+        case menuRestartId: seekTo(0.0f); break;
+        case menuBeatPulseId: changeSettings([](settings::Settings& s) { s.beatPulse = !s.beatPulse; }); break;
+        case menuWavyProgressId: changeSettings([](settings::Settings& s) { s.wavyProgress = !s.wavyProgress; }); break;
+        case menuVinylId: changeSettings([](settings::Settings& s) { s.vinylCard = !s.vinylCard; }); break;
+        case menuVinylRingId: changeSettings([](settings::Settings& s) { s.vinylRing = !s.vinylRing; }); break;
+        case menuUndockId: undock(); break;
+        case menuDockId: dock(); break;
+        case menuCardViewId: setCard(!m_settings.card); break;
+        case menuSettingsId: openSettings(); break;
+        default: break;
+    }
+}
+
+void Application::changeSettings(const std::function<void(settings::Settings&)>& change) {
+    settings::Settings updated = m_settings;
+    change(updated);
+    applySettings(updated);
+    if (m_settingsWindow) {
+        m_settingsWindow->setSettings(m_settings);
+    }
+}
+
+// Out of the taskbar without dragging: floating just above where it was.
+void Application::undock() {
+    if (m_model.floating || m_drag || !m_widget.hwnd() || !m_layout) {
+        return;
+    }
+    RECT rect{};
+    GetWindowRect(m_widget.hwnd(), &rect);
+    const int lift = win32::scaleDip(config::undockLiftDip, m_layout->dpi);
+    OffsetRect(&rect, 0, m_layout->bounds.top - lift - rect.bottom);
+    m_wheelHook.reset();
+    m_model.hover.reset();
+    m_model.hoverProgress = 0.0f;
+    m_model.floating = true;
+    m_settings.floating = true;
+    m_settings.floatingX = rect.left;
+    m_settings.floatingY = rect.top;
+    syncFloating();  // Recreates the window as a floating one, kept on screen.
+    m_settings.floatingX = m_widgetRect.left;
+    m_settings.floatingY = m_widgetRect.top;
+    saveSettings();
+    log::info("widget undocked (menu)");
+}
+
+// Back into the taskbar without dragging, as a bar.
+void Application::dock() {
+    if (!m_model.floating || m_drag) {
+        return;
+    }
+    m_wheelHook.reset();
+    m_model.hover.reset();
+    m_model.hoverProgress = 0.0f;
+    m_model.floating = false;
+    m_settings.floating = false;
+    m_settings.card = false;
+    saveSettings();
+    log::info("widget docked (menu)");
+    syncWithTaskbar(true);  // Embedding replaces the floating window.
+}
+
+// The floating widget as a bar or as the card, top-left corner kept.
+void Application::setCard(bool card) {
+    if (!m_model.floating || m_drag || card == m_settings.card) {
+        return;
+    }
+    m_settings.card = card;
+    saveSettings();
+    log::info("floating widget as a {}", card ? "card" : "bar");
+    syncFloating();
+}
+
 void Application::onTrayEvent(WPARAM wParam, LPARAM lParam) {
     const UINT event = LOWORD(lParam);
     switch (event) {
@@ -1430,6 +1713,18 @@ void Application::applySettings(const settings::Settings& updated) {
     }
     if (previous.language != updated.language) {
         applyLanguage();
+    }
+    if (previous.visualizerStyle != updated.visualizerStyle) {
+        log::info("visualiser style: {}", visualizerStyleName(updated.visualizerStyle));
+        m_model.visualizerStyle = updated.visualizerStyle;
+        relayoutWidget();  // "None" has no visualiser zone.
+    }
+    if (previous.vinylRing != updated.vinylRing || previous.wavyProgress != updated.wavyProgress) {
+        m_model.vinylRing = updated.vinylRing;
+        m_model.wavyProgress = updated.wavyProgress;
+        log::info("vinyl ring: {}, wavy progress: {}", updated.vinylRing ? "on" : "off",
+                  updated.wavyProgress ? "on" : "off");
+        repaintWidget();
     }
     if (previous.vinylCard != updated.vinylCard) {
         log::info("vinyl card: {}", updated.vinylCard ? "on" : "off");
@@ -1750,10 +2045,13 @@ void Application::onSpectrumFrame() {
     if (m_model.playing && m_capture.status() == audio::CaptureStatus::Running) {
         m_capture.samples().latest(m_frame);
         m_analyzer.analyze(m_frame);
+        m_oscilloscope.update(m_frame);
     } else {
         m_analyzer.decay();
+        m_oscilloscope.decay();
     }
     m_model.spectrum = m_analyzer.bands();
+    m_model.waveform = m_oscilloscope.shape();
     m_model.pulse = m_settings.beatPulse
                         ? m_beat.update(m_analyzer.kickDb(), static_cast<float>(config::spectrumFrameMs))
                         : 0.0f;

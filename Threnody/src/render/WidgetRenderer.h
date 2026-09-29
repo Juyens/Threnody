@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -104,11 +105,30 @@ private:
     void ensureVinylSheen(float radius);
     [[nodiscard]] bool vinylMoving(const WidgetModel& model, const WidgetLayout& layout) const noexcept;
     void drawCardVolume(const WidgetLayout& layout, const WidgetModel& model);
-    void drawText(const WidgetLayout& layout);
+    void drawText(const WidgetLayout& layout, float opacity);
     void drawTextLine(const TextLine& line, const winrt::com_ptr<IDWriteTextLayout>& natural, const RectF& box,
                       const Color& color, float opacity, float lift);
     void drawControls(const WidgetLayout& layout, const WidgetModel& model);
     void drawSpectrum(const WidgetLayout& layout, const WidgetModel& model);
+    void drawBars(const RectF& zone, const WidgetModel& model, float opacity, bool mirror);
+    void drawCurve(const RectF& zone, const WidgetModel& model, float opacity);
+    void drawWave(const RectF& zone, const WidgetModel& model, float opacity);
+    void drawLeds(const RectF& zone, const WidgetModel& model, float opacity);
+    void drawVinylRing(const WidgetModel& model, D2D1_POINT_2F centre, float inner, float outer);
+    // Across `zone`, the bars' colours left to right at `opacity`.
+    [[nodiscard]] winrt::com_ptr<ID2D1LinearGradientBrush> bandBrush(const RectF& zone, const WidgetModel& model,
+                                                                    float opacity);
+    // A smooth path through `points` (Catmull-Rom), closed down to `floor`
+    // when given; y stays within [top, bottom].
+    [[nodiscard]] winrt::com_ptr<ID2D1PathGeometry> smoothPath(std::span<const D2D1_POINT_2F> points, float top,
+                                                               float bottom, std::optional<float> floor);
+    // Where the level and the seek time show: the visualiser, or on a bar
+    // without one, the text column.
+    [[nodiscard]] static RectF readoutZone(const WidgetLayout& layout) noexcept;
+    [[nodiscard]] static bool bare(const WidgetLayout& layout) noexcept {
+        return !layout.card && layout.visualizer.width() <= 0.0f;
+    }
+    [[nodiscard]] float advance(std::chrono::steady_clock::time_point& last) const noexcept;
 
     void fill(const Color& color);
     [[nodiscard]] static Color barColor(const WidgetModel& model, int bar);
@@ -164,6 +184,16 @@ private:
     // The fixed highlights, as wedges around the origin for m_vinylSheenRadius.
     std::vector<winrt::com_ptr<ID2D1PathGeometry>> m_vinylSheen;
     float m_vinylSheenRadius{};
+
+    // Retro LED peaks: level in [0, 1] and when it was last pushed up.
+    std::array<float, config::spectrumBarCount> m_ledPeaks{};
+    std::array<std::chrono::steady_clock::time_point, config::spectrumBarCount> m_ledPeakSince{};
+    std::chrono::steady_clock::time_point m_ledLast{};
+
+    // Wavy progress line: the ripple's height in [0, 1] and its phase.
+    float m_progressWave{};
+    float m_progressPhase{};
+    std::chrono::steady_clock::time_point m_progressLast{};
 };
 
 }  // namespace threnody::render

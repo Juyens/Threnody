@@ -27,6 +27,18 @@ std::wstring percentEncode(std::wstring_view text) {
     return encoded;
 }
 
+std::wstring spotifyWebUrl(std::wstring_view uri) {
+    constexpr std::wstring_view scheme = L"spotify:";
+    if (!uri.starts_with(scheme) || uri.size() == scheme.size()) {
+        return {};
+    }
+    std::wstring url = L"https://open.spotify.com/";
+    for (const wchar_t c : uri.substr(scheme.size())) {
+        url.push_back(c == L':' ? L'/' : c);
+    }
+    return url;
+}
+
 void openSpotifyUri(std::wstring_view uri) {
     const std::wstring target{uri};
     const auto result = reinterpret_cast<INT_PTR>(

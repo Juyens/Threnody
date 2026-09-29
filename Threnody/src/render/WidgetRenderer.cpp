@@ -226,7 +226,8 @@ Result<WidgetLayout> WidgetRenderer::layout(const WidgetModel& model, float heig
 
     const WidgetLayout result = WidgetLayout::compute(
         heightDip, std::ceil(m_title.metrics.widthIncludingTrailingWhitespace), m_title.metrics.height,
-        std::ceil(m_artist.metrics.widthIncludingTrailingWhitespace), m_artist.metrics.height);
+        std::ceil(m_artist.metrics.widthIncludingTrailingWhitespace), m_artist.metrics.height,
+        model.visualizerStyle != VisualizerStyle::None);
 
     if (const Result<void> r = updateTextLine(m_title, model.title, result.title.width(), m_fonts.title()); !r) {
         return r.error();
@@ -529,7 +530,13 @@ Result<void> WidgetRenderer::draw(LayeredSurface& surface, const WidgetModel& mo
     if (layout.card) {
         drawCardVolume(layout, model);
     }
-    drawText(layout);
+    // On a bar without a visualiser the level and the seek time take the
+    // text's place for a moment.
+    float textOpacity = 1.0f;
+    if (bare(layout)) {
+        textOpacity = model.seekPreview ? 0.0f : 1.0f - volumeOsdOpacity(model);
+    }
+    drawText(layout, textOpacity);
     drawControls(layout, model);
     drawSeparator(layout);
     if (model.seekPreview) {
@@ -592,7 +599,7 @@ void WidgetRenderer::drawBackground(const WidgetLayout& layout, const WidgetMode
 
 // A thin vertical rule between the controls and the visualiser (bar only).
 void WidgetRenderer::drawSeparator(const WidgetLayout& layout) {
-    if (layout.card) {
+    if (layout.card || bare(layout)) {
         return;
     }
     const float x = std::round((layout.repeat.right + layout.visualizer.left) / 2.0f) + 0.5f;
@@ -617,15 +624,60 @@ void WidgetRenderer::drawProgress(const WidgetLayout& layout, const WidgetModel&
     m_target->PushLayer(layer, nullptr);
     const bool active = model.seekPreview.has_value();
     const float top = layout.height - (active ? config::progressActiveHeightDip : config::progressHeightDip);
+    const float end = layout.width * std::clamp(model.progress, 0.0f, 1.0f);
+
+    // The ripple grows while playing and settles on pause; pointing at the
+    // line flattens it so the position reads exactly.
+    const float dt = advance(m_progressLast);
+    const float settle = dt / config::progressWaveSettleSeconds;
+    const bool rippling = model.wavyProgress && model.playing && !active;
+    m_progressWave = rippling ? std::min(1.0f, m_progressWave + settle) : std::max(0.0f, m_progressWave - settle);
+    m_progressPhase = std::fmod(
+        m_progressPhase + dt * config::progressWaveCyclesPerSecond * 2.0f * std::numbers::pi_v<float>,
+        2.0f * std::numbers::pi_v<float>);
+    const bool wavy = model.wavyProgress && m_progressWave > 0.0f && !active;
+
+    // Unplayed track under the played part, or only after it when the
+    // played part ripples above it.
+    const float trackFrom = wavy ? end : 0.0f;
     fill(config::progressBaseColor);
-    m_target->FillRectangle({0.0f, top, layout.width, layout.height}, m_brush.get());
+    m_target->FillRectangle({trackFrom, top, layout.width, layout.height}, m_brush.get());
     fill(config::progressTrackColor);
-    m_target->FillRectangle({0.0f, top, layout.width, layout.height}, m_brush.get());
+    m_target->FillRectangle({trackFrom, top, layout.width, layout.height}, m_brush.get());
     // The same colour as the beat glow, so it follows the colour mode
     // (the rainbow sweep, the gradient wave, or the cover's colour).
     fill(barColor(model, 0));
-    const float end = layout.width * std::clamp(model.progress, 0.0f, 1.0f);
-    m_target->FillRectangle({0.0f, top, end, layout.height}, m_brush.get());
+    if (!wavy) {
+        m_target->FillRectangle({0.0f, top, end, layout.height}, m_brush.get());
+    } else {
+        float loudness = 0.0f;
+        for (const float band : model.spectrum) {
+            loudness += band;
+        }
+        loudness = std::clamp(1.6f * loudness / static_cast<float>(model.spectrum.size()), 0.0f, 1.0f);
+        const float amplitude = (layout.card ? config::cardProgressWaveAmplitudeDip : config::progressWaveAmplitudeDip) *
+                                easeInOutCubic(m_progressWave) * (0.55f + 0.45f * loudness);
+        const float wavelength = layout.card ? config::cardProgressWaveLengthDip : config::progressWaveLengthDip;
+        const float half = config::progressHeightDip / 2.0f;
+        const float middle = layout.height - half - amplitude;
+        winrt::com_ptr<ID2D1PathGeometry> path;
+        winrt::com_ptr<ID2D1GeometrySink> sink;
+        if (end > 0.0f && SUCCEEDED(m_graphics.d2d->CreatePathGeometry(path.put())) &&
+            SUCCEEDED(path->Open(sink.put()))) {
+            const auto yAt = [&](float x) {
+                return middle + amplitude * std::sin(2.0f * std::numbers::pi_v<float> * x / wavelength - m_progressPhase);
+            };
+            sink->BeginFigure({0.0f, yAt(0.0f)}, D2D1_FIGURE_BEGIN_HOLLOW);
+            for (float x = 1.0f; x < end; x += 1.0f) {
+                sink->AddLine({x, yAt(x)});
+            }
+            sink->AddLine({end, yAt(end)});
+            sink->EndFigure(D2D1_FIGURE_END_OPEN);
+            if (SUCCEEDED(sink->Close())) {
+                m_target->DrawGeometry(path.get(), m_brush.get(), config::progressHeightDip, m_iconStroke.get());
+            }
+        }
+    }
     m_target->PopLayer();
 
     // Pointed at: a knob on the position, as in Spotify.
@@ -653,7 +705,7 @@ void WidgetRenderer::drawSeekTime(const WidgetLayout& layout, const WidgetModel&
                                               static_cast<float>(model.durationMs));
     const std::wstring text = format(at) + L" / " + format(model.durationMs);
     const RectF box = layout.card ? RectF{0.0f, layout.repeat.bottom, layout.width, layout.progress.top}
-                                  : layout.visualizer;
+                                  : readoutZone(layout);
     winrt::com_ptr<IDWriteTextLayout> line;
     if (FAILED(m_graphics.dwrite->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), &m_fonts.artist(),
                                                    box.width(), box.height(), line.put()))) {
@@ -832,8 +884,12 @@ void WidgetRenderer::drawVinyl(const WidgetLayout& layout, const WidgetModel& mo
     advanceVinyl(model);
     const RectF& area = layout.cover;
     const D2D1_POINT_2F centre{(area.left + area.right) / 2.0f, (area.top + area.bottom) / 2.0f};
-    const float radius = std::min(area.width(), area.height()) / 2.0f;
+    const float room = std::min(area.width(), area.height()) / 2.0f;
+    const float radius = model.vinylRing ? room * vinylRingDiscShare : room;
     const float labelRadius = radius * vinylLabelShare;
+    if (model.vinylRing) {
+        drawVinylRing(model, centre, radius + vinylRingGapDip, room - vinylRingRayDip / 2.0f);
+    }
 
     // A soft shadow under the record, then the vinyl.
     fill(vinylShadowColor);
@@ -1045,18 +1101,21 @@ void WidgetRenderer::drawCoverFace(const std::optional<Cover>& face, const D2D1_
 
 // After a track change the old lines slide up and fade while the new ones
 // rise into place; everything stays inside the text column.
-void WidgetRenderer::drawText(const WidgetLayout& layout) {
+void WidgetRenderer::drawText(const WidgetLayout& layout, float opacity) {
+    if (opacity <= 0.0f) {
+        return;
+    }
     const float slide = easeInOutCubic(progress(m_textSlideStart, config::textSlideMs));
     const D2D1_RECT_F column{layout.title.left, 0.0f, std::max(layout.title.right, layout.artist.right), layout.height};
     m_target->PushAxisAlignedClip(column, D2D1_ANTIALIAS_MODE_ALIASED);
     if (slide < 1.0f) {
         const float lift = -config::textSlideDip * slide;
-        drawTextLine(m_titleFrom, nullptr, layout.title, config::titleColor, 1.0f - slide, lift);
-        drawTextLine(m_artistFrom, nullptr, layout.artist, config::artistColor, 1.0f - slide, lift);
+        drawTextLine(m_titleFrom, nullptr, layout.title, config::titleColor, (1.0f - slide) * opacity, lift);
+        drawTextLine(m_artistFrom, nullptr, layout.artist, config::artistColor, (1.0f - slide) * opacity, lift);
     }
     const float lift = config::textSlideDip * (1.0f - slide);
-    drawTextLine(m_title, m_titleNatural, layout.title, config::titleColor, slide, lift);
-    drawTextLine(m_artist, m_artistNatural, layout.artist, config::artistColor, slide, lift);
+    drawTextLine(m_title, m_titleNatural, layout.title, config::titleColor, slide * opacity, lift);
+    drawTextLine(m_artist, m_artistNatural, layout.artist, config::artistColor, slide * opacity, lift);
     m_target->PopAxisAlignedClip();
 }
 
@@ -1128,7 +1187,8 @@ bool WidgetRenderer::animating(const WidgetModel& model, const WidgetLayout& lay
     if (progress(m_coverFlipStart, config::coverFlipMs) < 1.0f ||
         progress(m_textSlideStart, config::textSlideMs) < 1.0f ||
         (model.floating && progress(m_backdropFadeStart, config::coverFlipMs) < 1.0f) ||
-        volumeOsdOpacity(model) > 0.0f || vinylMoving(model, layout)) {
+        volumeOsdOpacity(model) > 0.0f || vinylMoving(model, layout) ||
+        (!model.playing && m_progressWave > 0.0f)) {
         return true;
     }
     return model.hover && (marqueeOffset(m_title, m_titleNatural, layout.title.width()) >= 0.0f ||
@@ -1220,10 +1280,9 @@ float WidgetRenderer::volumeOsdOpacity(const WidgetModel& model) noexcept {
 void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel& model) {
     using namespace config;
     if (layout.card) {
-        return;  // The card has controls only.
+        return;  // The card has controls only (and the ring, with the vinyl).
     }
-    const RectF& zone = layout.visualizer;
-    const float maxHeight = zone.height();
+    const RectF zone = readoutZone(layout);
 
     // While the wheel changes the volume, the level takes the bars' place.
     const float osd = volumeOsdOpacity(model);
@@ -1251,26 +1310,213 @@ void WidgetRenderer::drawSpectrum(const WidgetLayout& layout, const WidgetModel&
             return;
         }
     }
+    if (bare(layout)) {
+        return;
+    }
 
-    // Bar and gap keep their proportions across the zone's width: the bar's
-    // natural size in the taskbar, wider in the card.
+    const float opacity = 1.0f - osd;
+    switch (model.visualizerStyle) {
+        case VisualizerStyle::Bars: drawBars(zone, model, opacity, false); break;
+        case VisualizerStyle::Mirror: drawBars(zone, model, opacity, true); break;
+        case VisualizerStyle::Curve: drawCurve(zone, model, opacity); break;
+        case VisualizerStyle::Wave: drawWave(zone, model, opacity); break;
+        case VisualizerStyle::Led: drawLeds(zone, model, opacity); break;
+        case VisualizerStyle::None: break;
+    }
+}
+
+RectF WidgetRenderer::readoutZone(const WidgetLayout& layout) noexcept {
+    if (!bare(layout)) {
+        return layout.visualizer;
+    }
+    return {layout.title.left, config::widgetPaddingDip, std::max(layout.title.right, layout.artist.right),
+            layout.height - config::widgetPaddingDip};
+}
+
+// Seconds since `last`, which becomes now; a long gap (nothing drawn for a
+// while) counts as a short one so nothing jumps.
+float WidgetRenderer::advance(std::chrono::steady_clock::time_point& last) const noexcept {
+    const auto now = std::chrono::steady_clock::now();
+    const float dt = last == std::chrono::steady_clock::time_point{}
+                         ? 0.0f
+                         : std::min(std::chrono::duration<float>(now - last).count(), 0.1f);
+    last = now;
+    return dt;
+}
+
+// Bar and gap keep their proportions across the zone's width. Mirrored,
+// each bar grows both ways from the zone's middle.
+void WidgetRenderer::drawBars(const RectF& zone, const WidgetModel& model, float opacity, bool mirror) {
+    using namespace config;
     const float natural = spectrumBarCount * spectrumBarWidthDip + (spectrumBarCount - 1) * spectrumBarGapDip;
     const float spread = zone.width() / natural;
     const float barWidth = spectrumBarWidthDip * spread;
     const float radius = std::min(barWidth / 2.0f, 1.0f * spread);
+    const float middle = (zone.top + zone.bottom) / 2.0f;
     float x = zone.left;
     for (int i = 0; i < spectrumBarCount; ++i) {
         const Color color = barColor(model, i);
-        fill(color.withAlpha(color.a * (1.0f - osd)));
+        fill(color.withAlpha(color.a * opacity));
         const float value = std::clamp(model.spectrum[static_cast<std::size_t>(i)], 0.0f, 1.0f);
-        const float height = spectrumBaselineDip + value * (maxHeight - spectrumBaselineDip);
-        const D2D1_ROUNDED_RECT bar{
-            .rect = {x, zone.bottom - height, x + barWidth, zone.bottom},
-            .radiusX = radius,
-            .radiusY = radius,
-        };
-        m_target->FillRoundedRectangle(bar, m_brush.get());
+        const float height = spectrumBaselineDip + value * (zone.height() - spectrumBaselineDip);
+        const D2D1_RECT_F rect = mirror ? D2D1_RECT_F{x, middle - height / 2.0f, x + barWidth, middle + height / 2.0f}
+                                        : D2D1_RECT_F{x, zone.bottom - height, x + barWidth, zone.bottom};
+        m_target->FillRoundedRectangle({rect, radius, radius}, m_brush.get());
         x += (spectrumBarWidthDip + spectrumBarGapDip) * spread;
+    }
+}
+
+winrt::com_ptr<ID2D1LinearGradientBrush> WidgetRenderer::bandBrush(const RectF& zone, const WidgetModel& model,
+                                                                  float opacity) {
+    std::array<D2D1_GRADIENT_STOP, config::spectrumBarCount> stops{};
+    for (int i = 0; i < config::spectrumBarCount; ++i) {
+        const Color color = barColor(model, i);
+        stops[static_cast<std::size_t>(i)] = {static_cast<float>(i) / (config::spectrumBarCount - 1),
+                                              toD2D(color.withAlpha(color.a * opacity))};
+    }
+    winrt::com_ptr<ID2D1GradientStopCollection> collection;
+    winrt::com_ptr<ID2D1LinearGradientBrush> brush;
+    if (FAILED(m_target->CreateGradientStopCollection(stops.data(), static_cast<UINT32>(stops.size()),
+                                                      collection.put())) ||
+        FAILED(m_target->CreateLinearGradientBrush({{zone.left, 0.0f}, {zone.right, 0.0f}}, collection.get(),
+                                                   brush.put()))) {
+        return nullptr;
+    }
+    return brush;
+}
+
+winrt::com_ptr<ID2D1PathGeometry> WidgetRenderer::smoothPath(std::span<const D2D1_POINT_2F> points, float top,
+                                                             float bottom, std::optional<float> floor) {
+    winrt::com_ptr<ID2D1PathGeometry> path;
+    winrt::com_ptr<ID2D1GeometrySink> sink;
+    if (points.size() < 2 || FAILED(m_graphics.d2d->CreatePathGeometry(path.put())) ||
+        FAILED(path->Open(sink.put()))) {
+        return nullptr;
+    }
+    const auto at = [&](std::ptrdiff_t i) {
+        return points[static_cast<std::size_t>(std::clamp<std::ptrdiff_t>(i, 0, std::ssize(points) - 1))];
+    };
+    const auto bounded = [&](D2D1_POINT_2F p) { return D2D1_POINT_2F{p.x, std::clamp(p.y, top, bottom)}; };
+    sink->BeginFigure(points.front(), floor ? D2D1_FIGURE_BEGIN_FILLED : D2D1_FIGURE_BEGIN_HOLLOW);
+    for (std::ptrdiff_t i = 0; i + 1 < std::ssize(points); ++i) {
+        const D2D1_POINT_2F p0 = at(i - 1);
+        const D2D1_POINT_2F p1 = at(i);
+        const D2D1_POINT_2F p2 = at(i + 1);
+        const D2D1_POINT_2F p3 = at(i + 2);
+        sink->AddBezier({bounded({p1.x + (p2.x - p0.x) / 6.0f, p1.y + (p2.y - p0.y) / 6.0f}),
+                         bounded({p2.x - (p3.x - p1.x) / 6.0f, p2.y - (p3.y - p1.y) / 6.0f}), p2});
+    }
+    if (floor) {
+        sink->AddLine({points.back().x, *floor});
+        sink->AddLine({points.front().x, *floor});
+    }
+    sink->EndFigure(floor ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
+    if (FAILED(sink->Close())) {
+        return nullptr;
+    }
+    return path;
+}
+
+// A smooth line through the bands' heights over a translucent fill, both in
+// the bars' colours from left to right.
+void WidgetRenderer::drawCurve(const RectF& zone, const WidgetModel& model, float opacity) {
+    using namespace config;
+    const float stroke = curveStrokeDip / 2.0f;
+    std::array<D2D1_POINT_2F, spectrumBarCount> points{};
+    for (int i = 0; i < spectrumBarCount; ++i) {
+        const float value = std::clamp(model.spectrum[static_cast<std::size_t>(i)], 0.0f, 1.0f);
+        const float height = spectrumBaselineDip + value * (zone.height() - spectrumBaselineDip - stroke);
+        points[static_cast<std::size_t>(i)] = {zone.left + zone.width() * static_cast<float>(i) / (spectrumBarCount - 1),
+                                               zone.bottom - height};
+    }
+    const winrt::com_ptr<ID2D1LinearGradientBrush> fillBrush = bandBrush(zone, model, opacity * curveFillAlpha);
+    const winrt::com_ptr<ID2D1LinearGradientBrush> lineBrush = bandBrush(zone, model, opacity);
+    if (!fillBrush || !lineBrush) {
+        return;
+    }
+    if (const auto area = smoothPath(points, zone.top + stroke, zone.bottom, zone.bottom)) {
+        m_target->FillGeometry(area.get(), fillBrush.get());
+    }
+    if (const auto line = smoothPath(points, zone.top + stroke, zone.bottom, std::nullopt)) {
+        m_target->DrawGeometry(line.get(), lineBrush.get(), curveStrokeDip, m_iconStroke.get());
+    }
+}
+
+// The waveform across the zone, centred on its middle.
+void WidgetRenderer::drawWave(const RectF& zone, const WidgetModel& model, float opacity) {
+    using namespace config;
+    const float middle = (zone.top + zone.bottom) / 2.0f;
+    const float reach = zone.height() / 2.0f - waveformStrokeDip;
+    std::array<D2D1_POINT_2F, waveformPoints> points{};
+    for (int i = 0; i < waveformPoints; ++i) {
+        points[static_cast<std::size_t>(i)] = {
+            zone.left + zone.width() * static_cast<float>(i) / (waveformPoints - 1),
+            middle - reach * std::clamp(model.waveform[static_cast<std::size_t>(i)], -1.0f, 1.0f)};
+    }
+    const winrt::com_ptr<ID2D1LinearGradientBrush> brush = bandBrush(zone, model, opacity);
+    const auto line = smoothPath(points, zone.top + waveformStrokeDip / 2.0f, zone.bottom - waveformStrokeDip / 2.0f,
+                                 std::nullopt);
+    if (brush && line) {
+        m_target->DrawGeometry(line.get(), brush.get(), waveformStrokeDip, m_iconStroke.get());
+    }
+}
+
+// Columns of segments: the lit ones in the bar's colour, the rest faint, and
+// the peak segment lingering above before it falls.
+void WidgetRenderer::drawLeds(const RectF& zone, const WidgetModel& model, float opacity) {
+    using namespace config;
+    const auto now = std::chrono::steady_clock::now();
+    const float dt = advance(m_ledLast);
+    const int segments = std::max(1, static_cast<int>((zone.height() + ledGapDip) / (ledSegmentDip + ledGapDip)));
+    const float used = static_cast<float>(segments) * (ledSegmentDip + ledGapDip) - ledGapDip;
+    const float natural = spectrumBarCount * spectrumBarWidthDip + (spectrumBarCount - 1) * spectrumBarGapDip;
+    const float spread = zone.width() / natural;
+    const float width = spectrumBarWidthDip * spread;
+    float x = zone.left;
+    for (int i = 0; i < spectrumBarCount; ++i) {
+        const auto index = static_cast<std::size_t>(i);
+        const float value = std::clamp(model.spectrum[index], 0.0f, 1.0f);
+        float& peak = m_ledPeaks[index];
+        if (value >= peak) {
+            peak = value;
+            m_ledPeakSince[index] = now;
+        } else if (std::chrono::duration<float, std::milli>(now - m_ledPeakSince[index]).count() > ledPeakHoldMs) {
+            peak = std::max(value, peak - ledPeakFallPerSecond * dt);
+        }
+        const int lit = std::max(1, static_cast<int>(std::lround(value * static_cast<float>(segments))));
+        const int peakSegment = static_cast<int>(std::lround(peak * static_cast<float>(segments))) - 1;
+        const Color color = barColor(model, i);
+        for (int k = 0; k < segments; ++k) {
+            const bool on = k < lit || (k == peakSegment && peakSegment >= lit);
+            fill(color.withAlpha(color.a * opacity * (on ? 1.0f : ledUnlitAlpha)));
+            const float bottom = zone.bottom - (zone.height() - used) / 2.0f - static_cast<float>(k) * (ledSegmentDip + ledGapDip);
+            m_target->FillRectangle({x, bottom - ledSegmentDip, x + width, bottom}, m_brush.get());
+        }
+        x += (spectrumBarWidthDip + spectrumBarGapDip) * spread;
+    }
+}
+
+// Rays around the record, one band per direction: bass at the bottom,
+// treble at the top, the same on both sides; between two bands the height
+// blends.
+void WidgetRenderer::drawVinylRing(const WidgetModel& model, D2D1_POINT_2F centre, float inner, float outer) {
+    using namespace config;
+    const float reach = std::max(outer - inner, 0.0f);
+    for (int k = 0; k < vinylRingRays; ++k) {
+        const float t = static_cast<float>(k) / vinylRingRays;
+        const float angle = 2.0f * std::numbers::pi_v<float> * t - std::numbers::pi_v<float> / 2.0f;
+        const float band = std::abs(2.0f * t - 1.0f) * (spectrumBarCount - 1);  // Top 12, bottom 0.
+        const auto low = static_cast<std::size_t>(band);
+        const std::size_t high = std::min(low + 1, static_cast<std::size_t>(spectrumBarCount - 1));
+        const float blend = band - static_cast<float>(low);
+        const float value = std::clamp(model.spectrum[low] * (1.0f - blend) + model.spectrum[high] * blend, 0.0f, 1.0f);
+        const float length = vinylRingRayDip / 2.0f + value * reach;
+        const float c = std::cos(angle);
+        const float sn = std::sin(angle);
+        fill(barColor(model, static_cast<int>(std::lround(band))));
+        m_target->DrawLine({centre.x + c * inner, centre.y + sn * inner},
+                           {centre.x + c * std::min(inner + length, outer), centre.y + sn * std::min(inner + length, outer)},
+                           m_brush.get(), vinylRingRayDip, m_iconStroke.get());
     }
 }
 

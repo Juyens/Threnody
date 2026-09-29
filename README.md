@@ -55,13 +55,22 @@ While it floats, pull any edge or corner: pulled taller it snaps into a **player
 standard size, the cover filling its width, the text and controls below, all over a blur of the
 artwork. Pulled shorter it snaps straight back to the bar. In **vinyl mode** (on by default, in
 the settings) the card's cover is the label of a record that turns while the music plays, and a
-tonearm lowers onto the grooves, tracks inward as the song goes on, and lifts off on pause.
+tonearm lowers onto the grooves, tracks inward as the song goes on, and lifts off on pause, with
+the spectrum standing around the record as rays.
+
+**Right-click** anything on the widget for a menu that fits what is under the pointer: open or
+copy the link of the song or the artist, pick the shuffle or repeat mode directly, go back to the
+start of the song, or choose the visualiser style. Below that it always offers the colours and
+effects, taking the widget out of the taskbar (or back, or into the card) and the settings.
 
 ## The spectrum is real
 
 The bars are not decoration. Audio is captured **from Spotify's own process** with WASAPI
 process loopback, so it reacts to the music and ignores everything else playing on the system.
-Thirteen bars, log-spaced between 40 Hz and 8 kHz through a KissFFT transform, at about 30 fps.
+Thirteen bands, log-spaced between 40 Hz and 8 kHz through a KissFFT transform, at about 30 fps,
+drawn in one of six styles: **bars**, **mirror** (growing both ways from the middle), a smooth
+**curve**, the **wave** itself like an oscilloscope, **retro LED** columns with falling peaks, or
+**none** (the widget narrows). The played part of the progress line can ripple with the music.
 
 That capture does a second job: Spotify reports play/pause through the Windows media controls
 several seconds late, so the widget derives the state from the audio itself and reacts within

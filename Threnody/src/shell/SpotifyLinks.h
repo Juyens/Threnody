@@ -9,6 +9,10 @@ namespace threnody::shell {
 // characters pass, everything else becomes %XX.
 [[nodiscard]] std::wstring percentEncode(std::wstring_view text);
 
+// The open.spotify.com address of a Spotify URI ("spotify:track:ID" to
+// "https://open.spotify.com/track/ID"), for sharing; empty for anything else.
+[[nodiscard]] std::wstring spotifyWebUrl(std::wstring_view uri);
+
 // Opens a Spotify URI ("spotify:...") in the desktop app.
 void openSpotifyUri(std::wstring_view uri);
 

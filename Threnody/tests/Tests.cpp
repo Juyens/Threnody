@@ -5,9 +5,11 @@
 #include "color/ColorSpace.h"
 #include "color/DominantColor.h"
 #include "dsp/BeatDetector.h"
+#include "dsp/Oscilloscope.h"
 #include "dsp/SpectrumAnalyzer.h"
 #include "interaction/HitTest.h"
 #include "media/SourceAppId.h"
+#include "render/VisualizerStyle.h"
 #include "render/WidgetLayout.h"
 #include "settings/Settings.h"
 #include "shell/SpotifyLinks.h"
@@ -19,6 +21,7 @@
 #include <WS2tcpip.h>
 #include <Windows.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -68,6 +71,13 @@ void testPercentEncode() {
     check(percentEncode(L"ヨルシカ") == L"%E3%83%A8%E3%83%AB%E3%82%B7%E3%82%AB", "CJK encodes as UTF-8 bytes");
     check(percentEncode(L"a b&c") == L"a%20b%26c", "space and ampersand");
     check(percentEncode(L"A-Z_0.9~") == L"A-Z_0.9~", "unreserved untouched");
+    using threnody::shell::spotifyWebUrl;
+    check(spotifyWebUrl(L"spotify:track:5bD2UsqCj6mJcrNO56WSTE") ==
+              L"https://open.spotify.com/track/5bD2UsqCj6mJcrNO56WSTE",
+          "a track URI becomes its web link");
+    check(spotifyWebUrl(L"spotify:artist:abc") == L"https://open.spotify.com/artist/abc", "so does an artist URI");
+    check(spotifyWebUrl(L"https://example.com").empty() && spotifyWebUrl(L"spotify:").empty(),
+          "anything else has no web link");
 }
 
 void testDominantColor() {
@@ -137,6 +147,30 @@ void testSpectrum() {
     check(analyzer.idle(), "bars settle to the baseline");
 }
 
+void testOscilloscope() {
+    constexpr int rate = 48000;
+    std::vector<float> samples(4096);
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        samples[i] = 0.1f * std::sin(2.0f * std::numbers::pi_v<float> * 100.0f * static_cast<float>(i) / rate + 1.0f);
+    }
+    threnody::dsp::Oscilloscope scope;
+    for (int frame = 0; frame < 8; ++frame) {
+        scope.update(samples);
+    }
+    const auto& shape = scope.shape();
+    const float peak = *std::max_element(shape.begin(), shape.end());
+    check(std::abs(shape[0]) < 0.3f && shape[2] > shape[0], "the wave starts on a rising zero crossing");
+    check(peak > 0.9f && peak <= 1.0f, "a quiet tone is scaled to fill the height");
+    for (int frame = 0; frame < 30; ++frame) {
+        scope.decay();
+    }
+    check(std::abs(scope.shape()[5]) < 0.01f, "silence flattens the wave");
+    for (const threnody::VisualizerStyle style : threnody::visualizerStyles) {
+        check(threnody::visualizerStyleFromName(threnody::visualizerStyleName(style)) == style,
+              "visualiser style names round-trip");
+    }
+}
+
 void testLayout() {
     using threnody::render::WidgetLayout;
     const WidgetLayout narrow = WidgetLayout::compute(40.0f, 50.0f, 16.0f, 30.0f, 14.0f);
@@ -154,6 +188,11 @@ void testLayout() {
     check(threnody::interaction::hitTest(narrow, narrow.playPause.left + 1.0f, narrow.height / 2.0f) ==
               threnody::interaction::Zone::PlayPause,
           "the middle of a control is still the control");
+
+    const WidgetLayout bare = WidgetLayout::compute(40.0f, 50.0f, 16.0f, 30.0f, 14.0f, false);
+    check(bare.visualizer.width() == 0.0f && bare.repeat.right == bare.width - threnody::config::widgetPaddingDip &&
+              bare.width < narrow.width,
+          "without a visualiser the widget ends after the controls");
 
     const WidgetLayout card = WidgetLayout::computeCard(22.0f, 18.0f);
     check(card.card && card.width == threnody::config::cardWidthDip, "card has the standard width");
@@ -230,6 +269,9 @@ void testSettingsRoundTrip() {
     original.colorMode = ColorMode::Rainbow;
     original.beatPulse = false;
     original.vinylCard = false;
+    original.visualizerStyle = threnody::VisualizerStyle::Led;
+    original.vinylRing = false;
+    original.wavyProgress = false;
     original.floating = true;
     original.floatingX = -1200;
     original.floatingY = 340;
@@ -291,6 +333,7 @@ int main() {
     testOklch();
     testSpectrum();
     testLayout();
+    testOscilloscope();
     testBeatDetector();
     testKickDetection();
     testSettingsRoundTrip();

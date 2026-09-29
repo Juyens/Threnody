@@ -52,6 +52,36 @@ struct Strings {
     Text modeGradient;
     Text beatPulse;
     Text vinylCard;
+    Text visualizerStyle;
+    Text colorLabel;
+    Text styleBars;
+    Text styleMirror;
+    Text styleCurve;
+    Text styleWave;
+    Text styleLed;
+    Text styleNone;
+    Text vinylRing;
+    Text wavyProgress;
+
+    // The widget's right-click menu.
+    Text menuOpenTrack;
+    Text menuCopyTrackLink;
+    Text menuCopyTitle;
+    Text menuOpenArtist;
+    Text menuCopyArtistLink;
+    Text menuShuffleOff;
+    Text menuShuffleOn;
+    Text menuSmartShuffle;
+    Text menuRepeatOff;
+    Text menuRepeatAll;
+    Text menuRepeatOne;
+    Text menuRestart;
+    Text menuVisualizer;
+    Text menuColors;
+    Text menuEffects;
+    Text menuUndock;
+    Text menuCardView;
+    Text menuDock;
     Text sectionSpotify;
     Text spotifyExplanation;
     Text spotifyConnected;
@@ -105,10 +135,36 @@ inline constexpr Strings spanish{
     .modeTrack = {L"Color de la canción", "Color de la canción"},
     .modeRainbow = {L"Arcoíris", "Arcoíris"},
     .modeGradient = {L"Degradado de la canción", "Degradado de la canción"},
-    .beatPulse = {L"Pulso con el ritmo (el borde brilla con los golpes)",
-                  "Pulso con el ritmo (el borde brilla con los golpes)"},
-    .vinylCard = {L"Modo vinilo en la tarjeta (la portada gira como un disco)",
-                  "Modo vinilo en la tarjeta (la portada gira como un disco)"},
+    .beatPulse = {L"Pulso con el ritmo", "Pulso con el ritmo"},
+    .vinylCard = {L"Modo vinilo en la tarjeta", "Modo vinilo en la tarjeta"},
+    .visualizerStyle = {L"Estilo", "Estilo"},
+    .colorLabel = {L"Color", "Color"},
+    .styleBars = {L"Barras", "Barras"},
+    .styleMirror = {L"Espejo", "Espejo"},
+    .styleCurve = {L"Curva", "Curva"},
+    .styleWave = {L"Onda", "Onda"},
+    .styleLed = {L"LED retro", "LED retro"},
+    .styleNone = {L"Ninguno", "Ninguno"},
+    .vinylRing = {L"Espectro en el vinilo", "Espectro en el vinilo"},
+    .wavyProgress = {L"Línea de progreso ondulada", "Línea de progreso ondulada"},
+    .menuOpenTrack = {L"Abrir la canción en Spotify", "Abrir la canción en Spotify"},
+    .menuCopyTrackLink = {L"Copiar enlace de la canción", "Copiar enlace de la canción"},
+    .menuCopyTitle = {L"Copiar título y artista", "Copiar título y artista"},
+    .menuOpenArtist = {L"Abrir el artista en Spotify", "Abrir el artista en Spotify"},
+    .menuCopyArtistLink = {L"Copiar enlace del artista", "Copiar enlace del artista"},
+    .menuShuffleOff = {L"Aleatorio desactivado", "Aleatorio desactivado"},
+    .menuShuffleOn = {L"Aleatorio", "Aleatorio"},
+    .menuSmartShuffle = {L"Aleatorio inteligente (se activa en Spotify)", "Aleatorio inteligente (se activa en Spotify)"},
+    .menuRepeatOff = {L"Repetir desactivado", "Repetir desactivado"},
+    .menuRepeatAll = {L"Repetir todo", "Repetir todo"},
+    .menuRepeatOne = {L"Repetir la canción", "Repetir la canción"},
+    .menuRestart = {L"Volver al inicio", "Volver al inicio"},
+    .menuVisualizer = {L"Visualizador", "Visualizador"},
+    .menuColors = {L"Colores", "Colores"},
+    .menuEffects = {L"Efectos", "Efectos"},
+    .menuUndock = {L"Sacar de la barra de tareas", "Sacar de la barra de tareas"},
+    .menuCardView = {L"Vista de tarjeta", "Vista de tarjeta"},
+    .menuDock = {L"Volver a la barra de tareas", "Volver a la barra de tareas"},
     .sectionSpotify = {L"SPOTIFY", "SPOTIFY"},
     .spotifyExplanation = {L"", "Sin conexión, el título y el artista abren una búsqueda en Spotify. Conectado, abren la canción y el artista exactos."},
     .spotifyConnected = {L"Estado: conectado", "Estado: conectado"},
@@ -160,9 +216,36 @@ inline constexpr Strings english{
     .modeTrack = {L"Track colour", "Track colour"},
     .modeRainbow = {L"Rainbow", "Rainbow"},
     .modeGradient = {L"Track gradient", "Track gradient"},
-    .beatPulse = {L"Beat pulse (the border glows on kicks)", "Beat pulse (the border glows on kicks)"},
-    .vinylCard = {L"Vinyl mode on the card (the cover spins like a record)",
-                  "Vinyl mode on the card (the cover spins like a record)"},
+    .beatPulse = {L"Beat pulse", "Beat pulse"},
+    .vinylCard = {L"Vinyl mode on the card", "Vinyl mode on the card"},
+    .visualizerStyle = {L"Style", "Style"},
+    .colorLabel = {L"Colour", "Colour"},
+    .styleBars = {L"Bars", "Bars"},
+    .styleMirror = {L"Mirror", "Mirror"},
+    .styleCurve = {L"Curve", "Curve"},
+    .styleWave = {L"Wave", "Wave"},
+    .styleLed = {L"Retro LED", "Retro LED"},
+    .styleNone = {L"None", "None"},
+    .vinylRing = {L"Spectrum on the vinyl", "Spectrum on the vinyl"},
+    .wavyProgress = {L"Wavy progress line", "Wavy progress line"},
+    .menuOpenTrack = {L"Open the song in Spotify", "Open the song in Spotify"},
+    .menuCopyTrackLink = {L"Copy song link", "Copy song link"},
+    .menuCopyTitle = {L"Copy title and artist", "Copy title and artist"},
+    .menuOpenArtist = {L"Open the artist in Spotify", "Open the artist in Spotify"},
+    .menuCopyArtistLink = {L"Copy artist link", "Copy artist link"},
+    .menuShuffleOff = {L"Shuffle off", "Shuffle off"},
+    .menuShuffleOn = {L"Shuffle", "Shuffle"},
+    .menuSmartShuffle = {L"Smart shuffle (turned on in Spotify)", "Smart shuffle (turned on in Spotify)"},
+    .menuRepeatOff = {L"Repeat off", "Repeat off"},
+    .menuRepeatAll = {L"Repeat all", "Repeat all"},
+    .menuRepeatOne = {L"Repeat the song", "Repeat the song"},
+    .menuRestart = {L"Back to the start", "Back to the start"},
+    .menuVisualizer = {L"Visualiser", "Visualiser"},
+    .menuColors = {L"Colours", "Colours"},
+    .menuEffects = {L"Effects", "Effects"},
+    .menuUndock = {L"Take out of the taskbar", "Take out of the taskbar"},
+    .menuCardView = {L"Card view", "Card view"},
+    .menuDock = {L"Back to the taskbar", "Back to the taskbar"},
     .sectionSpotify = {L"SPOTIFY", "SPOTIFY"},
     .spotifyExplanation = {L"", "Without a connection, the title and artist open a Spotify search. Connected, they open the exact track and artist."},
     .spotifyConnected = {L"Status: connected", "Status: connected"},

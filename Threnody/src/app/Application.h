@@ -3,6 +3,7 @@
 #include "audio/ProcessLoopbackCapture.h"
 #include "audio/SpotifyVolume.h"
 #include "dsp/BeatDetector.h"
+#include "dsp/Oscilloscope.h"
 #include "dsp/SpectrumAnalyzer.h"
 #include "interaction/HitTest.h"
 #include "interaction/WheelHook.h"
@@ -66,6 +67,9 @@ private:
     void onDragFrame();
     void endDrag();
     void syncFloating();
+    // Lays the widget out again where it is (taskbar or floating), after a
+    // change that alters its size.
+    void relayoutWidget();
     [[nodiscard]] SIZE layoutFloating();
     void placeFloating(const RECT& rect);
     void beginResize(UINT edges);
@@ -90,6 +94,7 @@ private:
     void syncSmartShuffle();
     void schedulePlayerRecheck();
     void cycleRepeat();
+    void setRepeat(RepeatMode mode);
     void syncRepeat(const std::optional<RepeatMode>& reported);
     void refreshVolume();
     [[nodiscard]] float currentProgress() const;
@@ -108,6 +113,16 @@ private:
     [[nodiscard]] RECT zoneOnScreen(const render::RectF& zone) const;
     void toggleColorMode();
     void saveSettings();
+
+    // The right-click menu: what it offers depends on the part clicked;
+    // below that, the looks and where the widget lives.
+    void showWidgetMenu(POINT client);
+    void runMenuCommand(UINT id);
+    // Changes the settings the way the settings window does, keeping it in step.
+    void changeSettings(const std::function<void(settings::Settings&)>& change);
+    void undock();
+    void dock();
+    void setCard(bool card);
 
     // Tray icon, its menu, and the settings window it opens.
     void onTrayEvent(WPARAM wParam, LPARAM lParam);
@@ -171,6 +186,7 @@ private:
     bool m_captureRunningLogged{false};
     dsp::SpectrumAnalyzer m_analyzer;
     dsp::BeatDetector m_beat;
+    dsp::Oscilloscope m_oscilloscope;
     bool m_animating{false};  // The renderer has motion of its own; frames run.
     std::array<float, dsp::SpectrumAnalyzer::fftSize> m_frame{};
     bool m_spectrumRunning{false};

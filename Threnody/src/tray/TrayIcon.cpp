@@ -1,8 +1,10 @@
 #include "tray/TrayIcon.h"
 
+#include "tray/PopupMenu.h"
 #include "util/Log.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace threnody::tray {
 
@@ -46,24 +48,14 @@ void TrayIcon::readd() {
 }
 
 UINT TrayIcon::showMenu(std::span<const MenuItem> items, POINT anchor) const {
-    win32::unique_hmenu menu{CreatePopupMenu()};
-    if (!menu) {
-        return 0;
-    }
+    std::vector<MenuEntry> entries;
     for (const MenuItem& item : items) {
         if (item.separatorBefore) {
-            AppendMenuW(menu.get(), MF_SEPARATOR, 0, nullptr);
+            entries.emplace_back();
         }
-        AppendMenuW(menu.get(), MF_STRING, item.id, item.text);
+        entries.push_back({.id = item.id, .text = item.text});
     }
-
-    // The owner must be foreground for the menu to close when the user
-    // clicks elsewhere; the WM_NULL afterwards is the documented nudge.
-    SetForegroundWindow(m_data.hWnd);
-    const UINT chosen = static_cast<UINT>(TrackPopupMenuEx(menu.get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
-                                                           anchor.x, anchor.y, m_data.hWnd, nullptr));
-    PostMessageW(m_data.hWnd, WM_NULL, 0, 0);
-    return chosen;
+    return showPopupMenu(m_data.hWnd, entries, anchor);
 }
 
 }  // namespace threnody::tray
