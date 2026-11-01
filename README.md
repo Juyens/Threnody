@@ -4,7 +4,7 @@
 
 **Your music lives in the taskbar, not in another window.**
 
-[![Download](https://img.shields.io/badge/download-v1.0.0-ededed?style=flat-square)](https://github.com/Juyens/Threnody/releases/latest)
+[![Download](https://img.shields.io/badge/download-v1.1.0-ededed?style=flat-square)](https://github.com/Juyens/Threnody/releases/latest)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599c?style=flat-square)](https://en.cppreference.com/w/cpp/20)
 [![Windows](https://img.shields.io/badge/Windows-11-0078d4?style=flat-square)](#)
 [![Spotify](https://img.shields.io/badge/Spotify-1db954?style=flat-square)](https://www.spotify.com/)
